@@ -1,9 +1,10 @@
-from . import stn_model, stn_dataset, stn_losses
 import utils
 
 import random
 import os
+import shutil
 import os.path as p
+from pathlib import Path
 
 import torch
 from torch.utils.data import DataLoader
@@ -22,48 +23,62 @@ import datetime
 import numpy as np
 
 import data.datasets as data
+import seg.loss as loss
 import seg.train_seg as seg
+import stn.train_stn as stn
+import model as m
 
 random.seed(2022)
 np.random.seed(2022)
 torch.manual_seed(2022)
 
-best_loss = float('inf')
+device = 'cuda'
 
-def get_model(dataset):
-    loc_net = seg.get_model(dataset).encoder
-    model = stn_model.STN(loc_net=loc_net)
-    model.to('cuda')
-    return model
+def get_model(dataset, log_name):
+  stn_model = stn.get_model(dataset)
+  stn_checkpoint_f = p.join('runs', log_name, 'stn', 'stn_best.pth')
+  stn_checkpoint = torch.load(stn_checkpoint_f)
+  stn_model.load_state_dict(stn_checkpoint['model'])
 
-def train_stn(batch_size, epochs, lr, dataset, subset, log_name):
+  seg_model = seg.get_model(dataset)
+  seg_checkpoint_f = p.join('runs', log_name, 'seg', 'seg_best.pth')
+  seg_checkpoint = torch.load(seg_checkpoint_f)
+  seg_model.load_state_dict(seg_checkpoint['model'])
+
+  model = m.TransformedSegmentation(stn_model, seg_model)
+  return model
+
+    
+def fine_tune(batch_size, epochs, lr, dataset, subset, log_name):
     def worker_init(worker_id):
         np.random.seed(2022 + worker_id)
 
-    log_dir = f'runs/{log_name}/stn'
-    if p.exists(log_dir):
-        os.rmdir(log_dir)
-    os.makedirs(log_dir, exist_ok=True)
+    log_dir = Path(f'runs/{log_name}')
+    if p.exists(log_dir/'fine'):
+        shutil.rmtree(log_dir/'fine')
+    os.makedirs(log_dir/'fine', exist_ok=True)
 
-    train_dataset, _ = data.get_datasets(dataset, subset, augment=False)
-    stn_train_dataset = stn_dataset.STNDataset(wrapped_dataset=train_dataset)
-    train_loader = DataLoader(stn_train_dataset, batch_size=batch_size, shuffle=True, worker_init_fn=worker_init)
 
-    loss = stn_losses.MSE()
-    model = get_model(train_dataset)
+    train_dataset, val_dataset = data.get_datasets(dataset, subset)
 
-    optimizer = optim.SGD(model.parameters(), lr=lr)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, worker_init_fn=worker_init)
+    val_loader = DataLoader(val_dataset, worker_init_fn=worker_init)
 
-    writer = SummaryWriter(log_dir=log_dir)
+    model = get_model(train_dataset, log_name)
 
+    loss_fn = loss.DiceLoss()
+    optimizer = optim.Adam(model.parameters(), lr=lr)
+
+    writer = SummaryWriter(log_dir=f'{log_dir}/fine')
     for epoch in range(1, epochs + 1):
-        utils.train(model, loss.loss, optimizer, epoch, train_loader, val_loader=None, writer=writer, checkpoint_name='stn_best.pth')
-    
+      utils.train(model, loss_fn, optimizer, epoch, train_loader, val_loader, writer=writer, checkpoint_name='fine_best.pth')
     writer.close()
+
+#TODO: Save arguments json file
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
-        description='Training'
+        description='Fine tuning'
     )
     parser.add_argument(
         '--batch-size',
@@ -93,4 +108,4 @@ if __name__ == '__main__':
         '--log-name', type=str, default=datetime.datetime.now().strftime("%Y-%m-%d-%H:%M:%S"), help='name of folder where checkpoints are stored',
     )
     args = parser.parse_args()
-    train_stn(**vars(args))
+    fine_tune(**vars(args))

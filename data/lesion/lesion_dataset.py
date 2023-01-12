@@ -6,68 +6,89 @@ from torch.utils.data import Dataset
 import numpy as np
 import cv2 as cv
 import matplotlib.pyplot as plt
-import albumentations.augmentations.functional as F
 
-sys.path.append('..')
-import helpers as h
-import polar_transformations
+import albumentations as A
+
+import torch.nn.functional as F
+
+import utils
 
 class LesionDataset(Dataset):
+  """
+  A dataset for skin lesion segmentation.
 
-  width = 512
-  height = 384
+  Attributes:
+    directory: The directory to load the dataset from. One of 'train', 'test', 'valid' or 'all'.
+    subset: The subset of the dataset to load. One of 'isic', 'dermis', 'dermquest'.
+    augment: Whether to augment the dataset.
+  """
+
+  width = 256
+  height = 256
 
   in_channels = 3
   out_channels = 1
 
-  def __init__(self, directory, polar=True, manual_centers=None, center_augmentation=False, percent=None):
-    self.directory = p.join('datasets/lesion', directory)
-    self.polar = polar
-    self.manual_centers = manual_centers
-    self.center_augmentation = center_augmentation
-    self.percent = percent
+  def __init__(self, directory, subset='isic', augment=True):
+    self.mode = directory
+    self.augment = augment
+    self.subset = subset
 
-    self.file_names = h.listdir(p.join(self.directory, 'label'))
-    self.file_names.sort()
-    
-  def __len__(self):
-    length = len(self.file_names)
-    if self.percent is not None:
-      length = int(length * self.percent)
-    return length
+    if directory == 'all':
+      directories = ['train', 'valid', 'test']
+    else:
+      directories = [directory]
 
-  def __getitem__(self, idx):
+    self.file_names = []
+    for directory in directories:
+      directory = p.join(p.dirname(__file__), subset, directory)
+      directory_files = utils.listdir(p.join(directory, 'label'))
+      directory_files = [p.join(directory, 'label', f) for f in directory_files]
+      directory_files.sort()
+      self.file_names += directory_files
+
+  def get_train_transforms(self):
+    return A.Compose([
+      A.HorizontalFlip(p=0.5),
+      A.VerticalFlip(p=0.5),
+      A.RandomRotate90(p=0.5),
+      A.ShiftScaleRotate(p=0.5, rotate_limit=45, scale_limit=0.2, shift_limit=0.2)
+    ])
+
+  def get_item_np(self, idx):
+    """
+    Gets the raw unprocessed item in as a numpy array.
+    """
     file_name = self.file_names[idx]
-    label_file = p.join(self.directory, 'label', file_name)
-    input_file = p.join(self.directory, 'input', file_name.replace('.png', '.jpg'))
+    label_file = file_name
+    input_file = file_name.replace('label/', 'input/').replace('.png', '.jpg')
 
     label = cv.imread(label_file, cv.IMREAD_GRAYSCALE)
     label = label.astype(np.float32)
     label /= 255.0
-
+    
     input = cv.imread(input_file)
     input = cv.cvtColor(input, cv.COLOR_BGR2RGB)
+
+    return input, label
+    
+  def __len__(self):
+    length = len(self.file_names)
+    return length
+
+  def __getitem__(self, idx):
+    input, label = self.get_item_np(idx)
+
     input = input.astype(np.float32)
     input /= 255.0
-    input -= 0.5 
+    input -= 0.5
+
+    if self.augment and self.mode == 'train':
+      transforms = self.get_train_transforms()
+      transformed = transforms(image=input, mask=label)
+      input = transformed['image']
+      label = transformed['mask']
     
-    # convert to polar
-    if self.polar:
-      if self.manual_centers is not None:
-        center = self.manual_centers[idx]
-      else:
-        center = polar_transformations.centroid(label)
-
-      if self.center_augmentation and np.random.uniform() < 0.3:
-        center_max_shift = 0.05 * LesionDataset.height
-        center = np.array(center)
-        center = (
-          center[0] + np.random.uniform(-center_max_shift, center_max_shift),
-          center[1] + np.random.uniform(-center_max_shift, center_max_shift))
-      
-      input = polar_transformations.to_polar(input, center)
-      label = polar_transformations.to_polar(label, center)
-
     # to PyTorch expected format
     input = input.transpose(2, 0, 1)
     label = np.expand_dims(label, axis=-1)
@@ -75,5 +96,7 @@ class LesionDataset(Dataset):
 
     input_tensor = torch.from_numpy(input)
     label_tensor = torch.from_numpy(label)
+
+    #utils.show_torch([input_tensor + 0.5, label_tensor])
 
     return input_tensor, label_tensor

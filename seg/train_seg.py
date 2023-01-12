@@ -1,9 +1,10 @@
-from . import stn_model, stn_dataset, stn_losses
 import utils
 
 import random
 import os
+import shutil
 import os.path as p
+from pathlib import Path
 
 import torch
 from torch.utils.data import DataLoader
@@ -22,44 +23,51 @@ import datetime
 import numpy as np
 
 import data.datasets as data
-import seg.train_seg as seg
+from . import loss
 
 random.seed(2022)
 np.random.seed(2022)
 torch.manual_seed(2022)
 
-best_loss = float('inf')
+device = 'cuda'
 
 def get_model(dataset):
-    loc_net = seg.get_model(dataset).encoder
-    model = stn_model.STN(loc_net=loc_net)
+    model = smp.Unet('resnet18', in_channels=dataset.in_channels, classes=1, activation='sigmoid')
     model.to('cuda')
     return model
 
-def train_stn(batch_size, epochs, lr, dataset, subset, log_name):
+def train_seg(batch_size, epochs, lr, dataset, subset, log_name):
     def worker_init(worker_id):
         np.random.seed(2022 + worker_id)
 
-    log_dir = f'runs/{log_name}/stn'
-    if p.exists(log_dir):
-        os.rmdir(log_dir)
-    os.makedirs(log_dir, exist_ok=True)
+    log_dir = Path(f'runs/{log_name}')
+    if p.exists(log_dir/'seg'):
+        shutil.rmtree(log_dir/'seg')
+    os.makedirs(log_dir/'seg', exist_ok=True)
 
-    train_dataset, _ = data.get_datasets(dataset, subset, augment=False)
-    stn_train_dataset = stn_dataset.STNDataset(wrapped_dataset=train_dataset)
-    train_loader = DataLoader(stn_train_dataset, batch_size=batch_size, shuffle=True, worker_init_fn=worker_init)
 
-    loss = stn_losses.MSE()
+    train_dataset, val_dataset = data.get_datasets(dataset, subset)
+
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, worker_init_fn=worker_init)
+    val_loader = DataLoader(val_dataset, worker_init_fn=worker_init)
+
     model = get_model(train_dataset)
+    saved_stn = torch.load(p.join(log_dir, 'stn', 'stn_best.pth'))
+    encoder_dict = {key.replace('loc_net.', ''): value 
+            for (key, value) in saved_stn['model'].items()
+            if 'loc_net.' in key}
+    # pretrain with the STN model
+    model.encoder.load_state_dict(encoder_dict)
 
-    optimizer = optim.SGD(model.parameters(), lr=lr)
+    loss_fn = loss.DiceLoss()
+    optimizer = optim.Adam(model.parameters(), lr=lr)
 
-    writer = SummaryWriter(log_dir=log_dir)
-
+    writer = SummaryWriter(log_dir=f'{log_dir}/seg')
     for epoch in range(1, epochs + 1):
-        utils.train(model, loss.loss, optimizer, epoch, train_loader, val_loader=None, writer=writer, checkpoint_name='stn_best.pth')
-    
+      utils.train(model, loss_fn, optimizer, epoch, train_loader, val_loader, writer=writer, checkpoint_name='seg_best.pth')
     writer.close()
+
+#TODO: Save arguments json file
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
@@ -93,4 +101,4 @@ if __name__ == '__main__':
         '--log-name', type=str, default=datetime.datetime.now().strftime("%Y-%m-%d-%H:%M:%S"), help='name of folder where checkpoints are stored',
     )
     args = parser.parse_args()
-    train_stn(**vars(args))
+    train_seg(**vars(args))

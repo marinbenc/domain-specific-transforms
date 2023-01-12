@@ -9,12 +9,22 @@ import numpy as np
 
 import segmentation_models_pytorch as smp
 
-class STN(nn.Module):  
-  def __init__(self, loc_net):
+class STN(nn.Module):
+  """
+  Spatial Transformer Network
+
+  Attributes:
+    loc_net: the localization network
+    output_theta: if `True`, the model output will be `(y, theta)`, otherwise it will be `y`
+  """
+  def __init__(self, loc_net, output_theta = False):
       super(STN, self).__init__()
+
+      self.output_theta = output_theta
 
       # Spatial transformer localization-network
       self.loc_net = loc_net
+      self.avg_pool = nn.AdaptiveAvgPool2d(output_size=(4, 4))
 
       # Regressor for the 3 * 2 affine matrix
       self.loc_head = nn.Sequential(
@@ -30,15 +40,19 @@ class STN(nn.Module):
   # Spatial transformer network forward function
   def stn(self, x):
       xs = self.loc_net(x)[-1]
+      xs = self.avg_pool(xs)
       xs = xs.view(-1, 512 * 4 * 4)
       theta = self.loc_head(xs)
       theta = theta.view(-1, 2, 3)
 
-      grid = F.affine_grid(theta, x.size())
+      grid = F.affine_grid(theta, x.size(), align_corners=False)
       x = F.grid_sample(x, grid)
 
-      return x
+      return x, theta
 
   def forward(self, x):
-      x = self.stn(x)
-      return x
+      x, theta = self.stn(x)
+      if self.output_theta:
+        return (x, theta)
+      else:
+        return x
