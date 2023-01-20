@@ -9,6 +9,8 @@ import numpy as np
 
 import segmentation_models_pytorch as smp
 
+import utils
+
 class STN(nn.Module):
   """
   Spatial Transformer Network
@@ -37,9 +39,22 @@ class STN(nn.Module):
       self.loc_head[-1].weight.data.zero_()
       self.loc_head[-1].bias.data.copy_(torch.tensor([1, 0, 0, 0, 1, 0], dtype=torch.float))
 
+      # TODO: Experiment with using fully conv network
+      # # Regressor for the 3 * 2 affine matrix
+      # self.loc_head = nn.Sequential(
+      #   nn.Conv2d(512, 1, (7, 6))
+      # )
+
+      # # Initialize the weights/bias with identity transformation
+      # self.loc_head[-1].bias.data.zero_()
+      # nn.init.dirac_(self.loc_head[-1].weight)
+
+
   # Spatial transformer network forward function
   def stn(self, x):
+      x_original = x.detach().clone()
       xs = self.loc_net(x)[-1]
+      
       xs = self.avg_pool(xs)
       xs = xs.view(-1, 512 * 4 * 4)
       theta = self.loc_head(xs)
@@ -47,6 +62,8 @@ class STN(nn.Module):
 
       grid = F.affine_grid(theta, x.size(), align_corners=False)
       x = F.grid_sample(x, grid)
+
+      #utils.show_torch([x_original[0], x[0]])
 
       return x, theta
 

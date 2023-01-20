@@ -21,6 +21,7 @@ class TransformedSegmentation(nn.Module):
       # Spatial transformer localization-network
       self.stn = stn
       self.seg = seg
+      self._iters = 0
 
   def forward(self, x):
     # transform image
@@ -36,7 +37,10 @@ class TransformedSegmentation(nn.Module):
     y = F.grid_sample(y_t, grid)
 
     #utils.show_torch(imgs=[x[0] + 0.5, x_t[0] + 0.5, y_t[0], y[0]])
+
+    # self._iters += 1
+
+    # if self._iters % 100 == 0:
+    #   utils.show_torch(imgs=[x[0] + 0.5, x_t[0] + 0.5, y_t[0], y[0]])
     
     return y
-
-    

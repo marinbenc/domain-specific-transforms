@@ -36,7 +36,7 @@ def get_model(dataset):
     model.to('cuda')
     return model
 
-def train_seg(batch_size, epochs, lr, dataset, subset, log_name):
+def train_seg(batch_size, epochs, lr, dataset, subset, log_name, untransformed_images):
     def worker_init(worker_id):
         np.random.seed(2022 + worker_id)
 
@@ -46,18 +46,24 @@ def train_seg(batch_size, epochs, lr, dataset, subset, log_name):
     os.makedirs(log_dir/'seg', exist_ok=True)
 
 
-    train_dataset, val_dataset = data.get_datasets(dataset, subset)
+    train_dataset, val_dataset = data.get_datasets(dataset, subset, stn_transformed=not untransformed_images)
 
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, worker_init_fn=worker_init)
     val_loader = DataLoader(val_dataset, worker_init_fn=worker_init)
 
     model = get_model(train_dataset)
-    saved_stn = torch.load(p.join(log_dir, 'stn', 'stn_best.pth'))
-    encoder_dict = {key.replace('loc_net.', ''): value 
-            for (key, value) in saved_stn['model'].items()
-            if 'loc_net.' in key}
-    # pretrain with the STN model
-    model.encoder.load_state_dict(encoder_dict)
+
+    stn_path = p.join(log_dir, 'stn', 'stn_best.pth')
+    if p.exists(stn_path):
+        print('Transfer learning with: ' + stn_path)
+        saved_stn = torch.load(p.join(log_dir, 'stn', 'stn_best.pth'))
+        encoder_dict = {key.replace('loc_net.', ''): value 
+                for (key, value) in saved_stn['model'].items()
+                if 'loc_net.' in key}
+        # pretrain with the STN model
+        model.encoder.load_state_dict(encoder_dict)
+    else:
+        print('No saved STN model exists, skipping transfer learning...')
 
     loss_fn = loss.DiceLoss()
     optimizer = optim.Adam(model.parameters(), lr=lr)
@@ -96,6 +102,9 @@ if __name__ == '__main__':
     )
     parser.add_argument(
         '--subset', type=str, choices=data.lesion_subsets, default='isic', help='which dataset to use'
+    )
+    parser.add_argument(
+        '--untransformed-images', action='store_true', help="don't use GT STN-transformed images in the training dataset"
     )
     parser.add_argument(
         '--log-name', type=str, default=datetime.datetime.now().strftime("%Y-%m-%d-%H:%M:%S"), help='name of folder where checkpoints are stored',

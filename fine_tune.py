@@ -28,6 +28,9 @@ import seg.train_seg as seg
 import stn.train_stn as stn
 import model as m
 
+from torch.nn import BCELoss
+import kornia as K
+
 random.seed(2022)
 np.random.seed(2022)
 torch.manual_seed(2022)
@@ -39,6 +42,10 @@ def get_model(dataset, log_name):
   stn_checkpoint_f = p.join('runs', log_name, 'stn', 'stn_best.pth')
   stn_checkpoint = torch.load(stn_checkpoint_f)
   stn_model.load_state_dict(stn_checkpoint['model'])
+#   for param in stn_model.parameters():
+#     param.requires_grad = False
+
+  # TODO: Check if loss function is the one shifting the STN
 
   seg_model = seg.get_model(dataset)
   seg_checkpoint_f = p.join('runs', log_name, 'seg', 'seg_best.pth')
@@ -66,7 +73,7 @@ def fine_tune(batch_size, epochs, lr, dataset, subset, log_name):
 
     model = get_model(train_dataset, log_name)
 
-    loss_fn = loss.DiceLoss()
+    loss_fn = K.losses.SSIMLoss(window_size=11)
     optimizer = optim.Adam(model.parameters(), lr=lr)
 
     writer = SummaryWriter(log_dir=f'{log_dir}/fine')

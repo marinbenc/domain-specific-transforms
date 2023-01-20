@@ -20,6 +20,7 @@ from torch.utils.tensorboard import SummaryWriter
 import argparse
 import datetime
 import numpy as np
+import shutil
 
 import data.datasets as data
 import seg.train_seg as seg
@@ -42,7 +43,7 @@ def train_stn(batch_size, epochs, lr, dataset, subset, log_name):
 
     log_dir = f'runs/{log_name}/stn'
     if p.exists(log_dir):
-        os.rmdir(log_dir)
+        shutil.rmtree(log_dir)
     os.makedirs(log_dir, exist_ok=True)
 
     train_dataset, _ = data.get_datasets(dataset, subset, augment=False)

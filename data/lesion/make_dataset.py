@@ -28,8 +28,8 @@ def save_files(files, folder):
 
     input_img = cv.imread(input_file)
     gt_img = cv.imread(gt_file, cv.IMREAD_GRAYSCALE)
-    gt_img = cv.resize(gt_img, (256, 256), interpolation=cv.INTER_NEAREST)
-    input_img = cv.resize(input_img, (256, 256), interpolation=cv.INTER_LINEAR)
+    #gt_img = cv.resize(gt_img, (256, 256), interpolation=cv.INTER_NEAREST)
+    #input_img = cv.resize(input_img, (256, 256), interpolation=cv.INTER_LINEAR)
     
     cv.imwrite(input_destination, input_img)
     cv.imwrite(gt_destionation, gt_img)

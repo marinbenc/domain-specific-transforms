@@ -5,6 +5,7 @@ import torch
 
 import matplotlib.pyplot as plt
 import numpy as np
+import cv2 as cv
 
 from medpy.metric.binary import precision as mp_precision
 from medpy.metric.binary import recall as mp_recall
@@ -12,8 +13,35 @@ from medpy.metric.binary import dc
 
 import torchvision.transforms.functional as F
 
+import PIL
+from PIL import Image
+
 device = 'cuda'
 best_loss = float('inf')
+
+def crop_to_label(input, label, padding=32):
+  original_size = label.shape[:2]
+
+  label_th = label.copy()
+  label_th[label_th > 0.5] = 1
+  label_th[label_th <= 0.5] = 0
+  label_th = label_th.astype(np.uint8)
+  bbox = cv.boundingRect(label_th)
+
+  padding = 32
+  x, y, w, h = bbox
+  x = max(0, x - padding)
+  y = max(0, y - padding)
+  w = min(w + 2 * padding, label_th.shape[1] - x)
+  h = min(h + 2 * padding, label_th.shape[0] - y)
+
+  input_cropped = input[y:y+h, x:x+w, :].copy()
+  label_cropped = label[y:y+h, x:x+w]
+
+  input_cropped = cv.resize(input, original_size, interpolation=cv.INTER_LINEAR)
+  label_cropped = np.array(Image.fromarray(label).resize(original_size, resample=PIL.Image.NEAREST))
+  return input_cropped, label_cropped
+
 
 def save_checkpoint(name, log_dir, model, epoch, optimizer, loss):
     file_name = p.join(log_dir, name)
@@ -65,7 +93,8 @@ def train(model, loss_fn, optimizer, epoch, train_loader, val_loader, writer, ch
         best_loss = loss_total
         save_checkpoint(checkpoint_name, writer.log_dir, model, epoch, optimizer, loss_total)
 
-    #utils.show_torch(imgs=[data[0] + 0.5, output[0] + 0.5, target[0] + 0.5])
+    #if (epoch - 1) % 10 == 0:
+    #  show_torch(imgs=[data[0] + 0.5, output[0] + 0.5, target[0] + 0.5])
 
 def _thresh(img):
   img[img > 0.5] = 1
