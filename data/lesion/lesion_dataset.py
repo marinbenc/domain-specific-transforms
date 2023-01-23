@@ -17,8 +17,8 @@ class LesionDataset(base_dataset.BaseDataset):
     augment: Whether to augment the dataset.
   """
   dataset_folder = 'lesion'
-  width = 256
-  height = 256
+  width = 512
+  height = 512
 
   in_channels = 3
   out_channels = 1
@@ -38,18 +38,18 @@ class LesionDataset(base_dataset.BaseDataset):
     input = cv.imread(input_file)
     input = cv.cvtColor(input, cv.COLOR_BGR2RGB)
 
-    return input, label
-
-  def __getitem__(self, idx):
-    input, label = self.get_item_np(idx)
-    original_size = label.shape
-
     input = input.astype(np.float32)
     input /= 255.0
     input -= 0.5
 
     if self.stn_transformed:
       input, label = utils.crop_to_label(input, label)
+
+    return input, label
+
+  def __getitem__(self, idx):
+    input, label = self.get_item_np(idx)
+    original_size = label.shape
 
     if self.augment and self.mode == 'train':
       transforms = self.get_train_transforms()

@@ -22,6 +22,42 @@ def get_checkpoint(model_type, log_name):
   checkpoint = p.join('runs', log_name, model_type, f'{model_type}_best.pth')  
   return torch.load(checkpoint)
 
+# def get_stn_to_seg_predictions(stn_model, seg_model, dataset):
+
+#   xs = []
+#   ys = []
+#   ys_pred = []
+
+#   stn_model.eval()
+#   seg_model.eval()
+#   with torch.no_grad():
+#     for idx, (data, target) in enumerate(dataset):
+#       x_np, y_np = dataset.get_item_np(idx)
+      
+#       data, target = data.to(device), target.to(device)
+#       stn_output = stn_model(data.unsqueeze(0))
+#       seg_output = seg_model(stn_output)
+#       seg_output = F.interpolate(seg_output, data.shape[-2:], mode='nearest')
+
+#       utils.show_torch([data + 0.5, stn_output.squeeze() + 0.5, seg_output[0], target.squeeze() + 0.5])
+
+#       seg_output = seg_output.squeeze().detach().cpu().numpy()
+#       seg_output = utils._thresh(seg_output)
+
+#       # TODO: Reverse transform
+
+#       # TODO: Scrap this, use model, load stn checkpoint for stn and seg checkpoint for seg, don't load fine tune checkpoint.
+#       !!
+#       utils.show_images_row([seg_output, y_np])
+
+#       xs.append(x_np)
+#       ys.append(y_np)
+#       ys_pred.append(seg_output)
+
+#   return xs, ys, ys_pred
+
+      
+
 def get_predictions(model, dataset):
   xs = []
   ys = []
@@ -42,7 +78,7 @@ def get_predictions(model, dataset):
       output = utils._thresh(output)
       ys_pred.append(output)
 
-      #utils.show_images_row(imgs=[x_np, y_np, output], titles=['x', 'y', 'y_pred'])
+      #utils.show_images_row(imgs=[x_np + 0.5, data.detach().cpu().numpy().transpose(1, 2, 0) + 0.5, y_np, target.squeeze().detach().cpu().numpy(), output])
 
   return xs, ys, ys_pred
 
@@ -74,10 +110,10 @@ def calculate_metrics(ys_pred, ys, metrics):
 
   return df
 
-def test(model_type, dataset, log_name, dataset_folder, subset):
-  train_dataset, valid_dataset = data.get_datasets(dataset, subset, augment=False)
-  whole_dataset = data.get_whole_dataset(dataset, subset)
-  test_dataset = data.get_test_dataset(dataset, subset)
+def test(model_type, dataset, log_name, dataset_folder, subset, transformed_images):
+  train_dataset, valid_dataset = data.get_datasets(dataset, subset, augment=False, stn_transformed=transformed_images)
+  whole_dataset = data.get_whole_dataset(dataset, subset, stn_transformed=transformed_images)
+  test_dataset = data.get_test_dataset(dataset, subset, stn_transformed=transformed_images)
 
   if dataset_folder == 'train':
     test_dataset = train_dataset
@@ -85,25 +121,32 @@ def test(model_type, dataset, log_name, dataset_folder, subset):
     test_dataset = valid_dataset
   elif dataset_folder == 'all':
     test_dataset = whole_dataset
-  
-  if model_type == 'seg':
-    model = seg.get_model(test_dataset)
-  elif model_type == 'stn':
+
+  if model_type == 'stn':
     model = stn.get_model(test_dataset)
     checkpoint = get_checkpoint(model_type, log_name)
     model.load_state_dict(checkpoint['model'])
     test_dataset = stn_dataset.STNDataset(test_dataset)
     run_stn_predictions(model, test_dataset)
     exit()
-  if model_type == 'fine':
+
+  if model_type == 'stn-to-seg':
     model = fine_tune.get_model(test_dataset, log_name)
+    stn_checkpoint = get_checkpoint('stn', log_name)
+    seg_checkpoint = get_checkpoint('seg', log_name)
+    model.stn.load_state_dict(stn_checkpoint['model'])
+    model.seg.load_state_dict(seg_checkpoint['model'])
+  else:
+    if model_type == 'seg':
+      model = seg.get_model(test_dataset)
+    elif model_type == 'fine':
+      model = fine_tune.get_model(test_dataset, log_name)
 
-  checkpoint = get_checkpoint(model_type, log_name)
-  model.load_state_dict(checkpoint['model'])
-
-  #TODO: Implement testing for STN
+    checkpoint = get_checkpoint(model_type, log_name)
+    model.load_state_dict(checkpoint['model'])
 
   xs, ys, ys_pred = get_predictions(model, test_dataset)
+    
   metrics = {
     'dsc': utils.dsc,
     'prec': utils.precision,
@@ -118,7 +161,7 @@ if __name__ == '__main__':
         description='Test a trained model'
     )
     parser.add_argument(
-        '--model-type', type=str, choices=['seg', 'stn', 'fine'], required=True, help='type of model to be tested',
+        '--model-type', type=str, choices=['seg', 'stn', 'fine', 'stn-to-seg'], required=True, help='type of model to be tested',
     )
     parser.add_argument(
         '--dataset', type=str, choices=data.dataset_choices, default='lesion', help='which dataset to use'
@@ -131,6 +174,9 @@ if __name__ == '__main__':
     )
     parser.add_argument(
         '--log-name', type=str, required=True, help='name of folder where checkpoints are stored',
+    )
+    parser.add_argument(
+        '--transformed-images', action='store_true', help="use GT STN-transformed images for testing"
     )
     args = parser.parse_args()
     test(**vars(args))

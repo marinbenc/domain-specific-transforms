@@ -38,8 +38,8 @@ def crop_to_label(input, label, padding=32):
   input_cropped = input[y:y+h, x:x+w, :].copy()
   label_cropped = label[y:y+h, x:x+w]
 
-  input_cropped = cv.resize(input, original_size, interpolation=cv.INTER_LINEAR)
-  label_cropped = np.array(Image.fromarray(label).resize(original_size, resample=PIL.Image.NEAREST))
+  input_cropped = cv.resize(input_cropped, original_size, interpolation=cv.INTER_LINEAR)
+  label_cropped = np.array(Image.fromarray(label_cropped).resize(original_size, resample=PIL.Image.NEAREST))
   return input_cropped, label_cropped
 
 
@@ -52,7 +52,7 @@ def save_checkpoint(name, log_dir, model, epoch, optimizer, loss):
         'loss': loss
     }, file_name)
 
-def train(model, loss_fn, optimizer, epoch, train_loader, val_loader, writer, checkpoint_name):
+def train(model, loss_fn, optimizer, epoch, train_loader, val_loader, writer, checkpoint_name, scheduler=None):
     global best_loss
     if epoch == 0:
       best_loss = float('inf')
@@ -67,7 +67,7 @@ def train(model, loss_fn, optimizer, epoch, train_loader, val_loader, writer, ch
         loss.backward()
         optimizer.step()
         loss_total += loss.item()
-    
+        
     loss_total /= len(train_loader)
     writer.add_scalar('Loss/train', loss_total, epoch)
 
@@ -82,11 +82,14 @@ def train(model, loss_fn, optimizer, epoch, train_loader, val_loader, writer, ch
           output = model(data)
           loss = loss_fn(output, target)
           loss_total += loss.item()
-      loss_total /= len(train_loader)
+      loss_total /= len(val_loader)
       writer.add_scalar('Loss/valid', loss_total, epoch)
       print(f'\tValid Loss: {loss_total:.6f}', end='', flush=True)
     
     print()
+
+    if scheduler is not None:
+      scheduler.step(loss_total)
 
     if loss_total < best_loss and True:
         print('Saving new best model...')

@@ -4,6 +4,7 @@ import torch
 import torch.nn.functional as F
 import numpy as np
 import math
+from torch import nn
 
 
 class NCC:
@@ -118,3 +119,18 @@ class Grad:
         if self.loss_mult is not None:
             grad *= self.loss_mult
         return grad
+
+class IdentityTransformLoss(nn.Module):
+
+    """Get nuclear norm"""
+
+    def __init__(self):
+        """ """
+        nn.Module.__init__(self)
+
+    def forward(self, transform):
+        y = torch.Tensor([[1, 0, 0], [0, 1, 0]]).double()
+        y = y.to(transform.device)
+        loss = (transform - y)**2
+        loss = loss.sum(1).mean()
+        return loss

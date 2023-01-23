@@ -13,16 +13,16 @@ def get_datasets(dataset, subset='isic', augment=True, stn_transformed=False):
     val_dataset = liver.LiverDataset(directory='valid', augment=augment, stn_transformed=stn_transformed)
   return (train_dataset, val_dataset)
 
-def get_whole_dataset(dataset, subset='isic'):
+def get_whole_dataset(dataset, subset='isic', stn_transformed=False):
   if dataset == 'lesion':
-    dataset = lesion.LesionDataset(directory='all', subset=subset, augment=False)
+    dataset = lesion.LesionDataset(directory='all', subset=subset, augment=False, stn_transformed=stn_transformed)
   elif dataset == 'liver':
     dataset = liver.LiverDataset(directory='all', augment=False)
   return dataset
 
-def get_test_dataset(dataset, subset='isic'):
+def get_test_dataset(dataset, subset='isic', stn_transformed=False):
   if dataset == 'lesion':
-    test_dataset = lesion.LesionDataset(directory='test', subset=subset, augment=False)
+    test_dataset = lesion.LesionDataset(directory='test', subset=subset, augment=False, stn_transformed=stn_transformed)
   elif dataset == 'liver':
-    test_dataset = liver.LiverDataset(directory='test', augment=False)
+    test_dataset = liver.LiverDataset(directory='test', augment=False, stn_transformed=stn_transformed)
   return test_dataset

@@ -16,6 +16,8 @@ import matplotlib.patches as patches
 import segmentation_models_pytorch as smp
 
 from torch.utils.tensorboard import SummaryWriter
+from monai.losses import LocalNormalizedCrossCorrelationLoss, GlobalMutualInformationLoss, BendingEnergyLoss
+import stn.stn_losses as losses
 
 import argparse
 import datetime
@@ -33,7 +35,7 @@ best_loss = float('inf')
 
 def get_model(dataset):
     loc_net = seg.get_model(dataset).encoder
-    model = stn_model.STN(loc_net=loc_net)
+    model = stn_model.STN(loc_net=loc_net, output_theta=True)
     model.to('cuda')
     return model
 
@@ -50,15 +52,24 @@ def train_stn(batch_size, epochs, lr, dataset, subset, log_name):
     stn_train_dataset = stn_dataset.STNDataset(wrapped_dataset=train_dataset)
     train_loader = DataLoader(stn_train_dataset, batch_size=batch_size, shuffle=True, worker_init_fn=worker_init)
 
-    loss = stn_losses.MSE()
+    loss = torch.nn.L1Loss()
+    smoothness = losses.IdentityTransformLoss()
+
+    def calculate_loss(output, target):
+        output_img, ouput_theta = output
+        smoothness_loss = smoothness(ouput_theta)
+        img_loss = loss(output_img, target)
+        return img_loss
+    
     model = get_model(train_dataset)
 
     optimizer = optim.SGD(model.parameters(), lr=lr)
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.1, patience=5, verbose=True)
 
     writer = SummaryWriter(log_dir=log_dir)
 
     for epoch in range(1, epochs + 1):
-        utils.train(model, loss.loss, optimizer, epoch, train_loader, val_loader=None, writer=writer, checkpoint_name='stn_best.pth')
+        utils.train(model, calculate_loss, optimizer, epoch, train_loader, val_loader=None, writer=writer, checkpoint_name='stn_best.pth', scheduler=scheduler)
     
     writer.close()
 
