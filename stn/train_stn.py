@@ -35,7 +35,7 @@ best_loss = float('inf')
 
 def get_model(dataset):
     loc_net = seg.get_model(dataset).encoder
-    model = stn_model.STN(loc_net=loc_net, output_theta=True)
+    model = stn_model.STN(loc_net=loc_net, output_theta=False)
     model.to('cuda')
     return model
 
@@ -48,18 +48,14 @@ def train_stn(batch_size, epochs, lr, dataset, subset, log_name):
         shutil.rmtree(log_dir)
     os.makedirs(log_dir, exist_ok=True)
 
-    train_dataset, _ = data.get_datasets(dataset, subset, augment=False)
+    train_dataset, valid_dataset = data.get_datasets(dataset, subset, augment=False)
     stn_train_dataset = stn_dataset.STNDataset(wrapped_dataset=train_dataset)
     train_loader = DataLoader(stn_train_dataset, batch_size=batch_size, shuffle=True, worker_init_fn=worker_init)
 
-    loss = torch.nn.L1Loss()
-    smoothness = losses.IdentityTransformLoss()
+    stn_valid_dataset = stn_dataset.STNDataset(wrapped_dataset=valid_dataset)
+    valid_loader = DataLoader(stn_valid_dataset, worker_init_fn=worker_init)
 
-    def calculate_loss(output, target):
-        output_img, ouput_theta = output
-        smoothness_loss = smoothness(ouput_theta)
-        img_loss = loss(output_img, target)
-        return img_loss
+    loss = torch.nn.L1Loss()
     
     model = get_model(train_dataset)
 
@@ -69,7 +65,7 @@ def train_stn(batch_size, epochs, lr, dataset, subset, log_name):
     writer = SummaryWriter(log_dir=log_dir)
 
     for epoch in range(1, epochs + 1):
-        utils.train(model, calculate_loss, optimizer, epoch, train_loader, val_loader=None, writer=writer, checkpoint_name='stn_best.pth', scheduler=scheduler)
+        utils.train(model, loss, optimizer, epoch, train_loader, valid_loader, writer=writer, checkpoint_name='stn_best.pth', scheduler=scheduler)
     
     writer.close()
 

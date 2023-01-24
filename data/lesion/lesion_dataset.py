@@ -3,6 +3,7 @@ from torch.utils.data import Dataset
 import numpy as np
 import cv2 as cv
 import matplotlib.pyplot as plt
+import albumentations as A
 
 import utils
 import data.base_dataset as base_dataset
@@ -22,6 +23,14 @@ class LesionDataset(base_dataset.BaseDataset):
 
   in_channels = 3
   out_channels = 1
+
+  def get_train_transforms(self):
+    return A.Compose([
+      A.HorizontalFlip(p=0.5),
+      A.VerticalFlip(p=0.5),
+      A.RandomRotate90(p=0.5),
+      A.ShiftScaleRotate(p=0.5, rotate_limit=45, scale_limit=0.1, shift_limit=0.1)
+    ])
 
   def get_item_np(self, idx):
     """
@@ -51,11 +60,15 @@ class LesionDataset(base_dataset.BaseDataset):
     input, label = self.get_item_np(idx)
     original_size = label.shape
 
+    #utils.show_images_row(imgs=[input + 0.5, label])
+
     if self.augment and self.mode == 'train':
       transforms = self.get_train_transforms()
       transformed = transforms(image=input, mask=label)
       input = transformed['image']
       label = transformed['mask']
+
+    #utils.show_images_row(imgs=[input + 0.5, label])
     
     # to PyTorch expected format
     input = input.transpose(2, 0, 1)

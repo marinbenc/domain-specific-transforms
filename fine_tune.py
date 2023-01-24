@@ -27,6 +27,7 @@ import seg.loss as loss
 import seg.train_seg as seg
 import stn.train_stn as stn
 import model as m
+import stn.stn_losses as losses
 
 from torch.nn import BCELoss
 import kornia as K
@@ -72,13 +73,24 @@ def fine_tune(batch_size, epochs, lr, dataset, subset, log_name):
     val_loader = DataLoader(val_dataset, worker_init_fn=worker_init)
 
     model = get_model(train_dataset, log_name)
+    # Output the STN theta to calculate smoothness loss
+    model.output_theta = True
 
-    loss_fn = K.losses.SSIMLoss(window_size=11)
     optimizer = optim.Adam(model.parameters(), lr=lr)
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=5, verbose=True)
+
+    loss_fn = loss.DiceLoss()
+    smoothness = losses.IdentityTransformLoss()
+
+    def calculate_loss(output, target):
+        output_img, ouput_theta = output
+        smoothness_loss = smoothness(ouput_theta)
+        img_loss = loss_fn(output_img, target)
+        return img_loss
 
     writer = SummaryWriter(log_dir=f'{log_dir}/fine')
     for epoch in range(1, epochs + 1):
-      utils.train(model, loss_fn, optimizer, epoch, train_loader, val_loader, writer=writer, checkpoint_name='fine_best.pth')
+      utils.train(model, calculate_loss, optimizer, epoch, train_loader, val_loader, writer=writer, checkpoint_name='fine_best.pth', scheduler=scheduler)
     writer.close()
 
 #TODO: Save arguments json file

@@ -42,14 +42,6 @@ class BaseDataset(Dataset):
       directory_files.sort()
       self.file_names += directory_files
 
-  def get_train_transforms(self):
-    return A.Compose([
-      A.HorizontalFlip(p=0.5),
-      A.VerticalFlip(p=0.5),
-      A.RandomRotate90(p=0.5),
-      A.ShiftScaleRotate(p=0.5, rotate_limit=5, scale_limit=0.02, shift_limit=0.02)
-    ])
-
   def get_item_np(self, idx):
     """
     Gets the raw unprocessed item in as a numpy array.

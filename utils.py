@@ -30,6 +30,7 @@ def crop_to_label(input, label, padding=32):
 
   padding = 32
   x, y, w, h = bbox
+
   x = max(0, x - padding)
   y = max(0, y - padding)
   w = min(w + 2 * padding, label_th.shape[1] - x)
@@ -37,6 +38,14 @@ def crop_to_label(input, label, padding=32):
 
   input_cropped = input[y:y+h, x:x+w, :].copy()
   label_cropped = label[y:y+h, x:x+w]
+
+  padding_left = max(0, padding - x)
+  padding_right = max(0, padding - (original_size[1] - (x + w)))
+  padding_top = max(0, padding - y)
+  padding_bottom = max(0, padding - (original_size[0] - (y + h)))
+
+  input_cropped = cv.copyMakeBorder(input_cropped, padding_top, padding_bottom, padding_left, padding_right, cv.BORDER_CONSTANT, value=0)
+  label_cropped = cv.copyMakeBorder(label_cropped, padding_top, padding_bottom, padding_left, padding_right, cv.BORDER_CONSTANT, value=0)
 
   input_cropped = cv.resize(input_cropped, original_size, interpolation=cv.INTER_LINEAR)
   label_cropped = np.array(Image.fromarray(label_cropped).resize(original_size, resample=PIL.Image.NEAREST))

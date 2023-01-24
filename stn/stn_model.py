@@ -58,6 +58,14 @@ class STN(nn.Module):
       xs = self.avg_pool(xs)
       xs = xs.view(-1, 512 * 4 * 4)
       theta = self.loc_head(xs)
+
+      # Use the following line to test how sensitive SEG is to STN
+      # by uncommenting running the test with --transformed-images and stn-to-seg type
+      #theta = torch.tensor([0.95, 0, 0, 0, 1.05, 0], dtype=torch.float).cuda()
+
+      # without augmentation for SEG, even tiny changes in theta (like above) can cause
+      # the segmentation DSC to drop significantly
+      
       theta = theta.view(-1, 2, 3)
 
       grid = F.affine_grid(theta, x.size(), align_corners=False)
