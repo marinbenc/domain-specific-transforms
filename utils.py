@@ -28,7 +28,6 @@ def crop_to_label(input, label, padding=32):
   label_th = label_th.astype(np.uint8)
   bbox = cv.boundingRect(label_th)
 
-  padding = 32
   x, y, w, h = bbox
 
   x = max(0, x - padding)

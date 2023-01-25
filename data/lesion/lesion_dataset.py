@@ -29,7 +29,7 @@ class LesionDataset(base_dataset.BaseDataset):
       A.HorizontalFlip(p=0.5),
       A.VerticalFlip(p=0.5),
       A.RandomRotate90(p=0.5),
-      A.ShiftScaleRotate(p=0.5, rotate_limit=45, scale_limit=0.1, shift_limit=0.1)
+      A.ShiftScaleRotate(p=0.5, rotate_limit=45, scale_limit=0.15, shift_limit=0.15)
     ])
 
   def get_item_np(self, idx):

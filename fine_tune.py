@@ -79,14 +79,14 @@ def fine_tune(batch_size, epochs, lr, dataset, subset, log_name):
     optimizer = optim.Adam(model.parameters(), lr=lr)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=5, verbose=True)
 
-    loss_fn = loss.DiceLoss()
+    loss_fn = BCELoss()
     smoothness = losses.IdentityTransformLoss()
 
     def calculate_loss(output, target):
         output_img, ouput_theta = output
         smoothness_loss = smoothness(ouput_theta)
         img_loss = loss_fn(output_img, target)
-        return img_loss
+        return img_loss + smoothness_loss * 0.25
 
     writer = SummaryWriter(log_dir=f'{log_dir}/fine')
     for epoch in range(1, epochs + 1):
