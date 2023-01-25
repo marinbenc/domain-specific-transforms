@@ -32,7 +32,7 @@ class LesionDataset(base_dataset.BaseDataset):
       A.ShiftScaleRotate(p=0.5, rotate_limit=45, scale_limit=0.15, shift_limit=0.15)
     ])
 
-  def get_item_np(self, idx):
+  def get_item_np(self, idx, transform=None):
     """
     Gets the raw unprocessed item in as a numpy array.
     """
@@ -51,25 +51,28 @@ class LesionDataset(base_dataset.BaseDataset):
     input /= 255.0
     input -= 0.5
 
+    if transform is not None:
+      transformed = transform(image=input, mask=label)
+      input = transformed['image']
+      label = transformed['mask']
+
     if self.stn_transformed:
-      input, label = utils.crop_to_label(input, label)
+      bbox_aug = 32 if self.augment and self.mode == 'train' else 0
+      input, label = utils.crop_to_label(input, label, bbox_aug=bbox_aug)
 
     return input, label
 
   def __getitem__(self, idx):
-    input, label = self.get_item_np(idx)
+    if self.augment and self.mode == 'train':
+      transforms = self.get_train_transforms()
+    else:
+      transforms = None
+    
+    input, label = self.get_item_np(idx, transform=transforms)
     original_size = label.shape
 
     #utils.show_images_row(imgs=[input + 0.5, label])
-
-    if self.augment and self.mode == 'train':
-      transforms = self.get_train_transforms()
-      transformed = transforms(image=input, mask=label)
-      input = transformed['image']
-      label = transformed['mask']
-
-    #utils.show_images_row(imgs=[input + 0.5, label])
-    
+        
     # to PyTorch expected format
     input = input.transpose(2, 0, 1)
     label = np.expand_dims(label, axis=-1)

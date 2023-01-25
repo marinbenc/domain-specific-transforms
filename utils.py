@@ -19,7 +19,17 @@ from PIL import Image
 device = 'cuda'
 best_loss = float('inf')
 
-def crop_to_label(input, label, padding=32):
+def crop_to_label(input, label, padding=32, bbox_aug=0):
+  """ 
+  Crop input to bbox enclosing label, with padding and bbox augmentation.
+  Args:
+    input: input image
+    label: label image
+    padding: padding around label
+    bbox_aug: random bbox augmentation in pixels, 
+              each bbox parameter (x, y, w, h) is augmented 
+              by a random value in [-bbox_aug, bbox_aug]
+  """
   original_size = label.shape[:2]
 
   label_th = label.copy()
@@ -29,6 +39,13 @@ def crop_to_label(input, label, padding=32):
   bbox = cv.boundingRect(label_th)
 
   x, y, w, h = bbox
+
+  if bbox_aug > 0:
+    augs = np.random.randint(-bbox_aug, bbox_aug, size=4)
+    x += augs[0]
+    y += augs[1]
+    w += augs[2]
+    h += augs[3]
 
   x = max(0, x - padding)
   y = max(0, y - padding)
