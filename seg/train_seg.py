@@ -45,7 +45,6 @@ def train_seg(batch_size, epochs, lr, dataset, subset, log_name, untransformed_i
         shutil.rmtree(log_dir/'seg')
     os.makedirs(log_dir/'seg', exist_ok=True)
 
-
     train_dataset, val_dataset = data.get_datasets(dataset, subset, stn_transformed=not untransformed_images)
 
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, worker_init_fn=worker_init)
@@ -53,24 +52,25 @@ def train_seg(batch_size, epochs, lr, dataset, subset, log_name, untransformed_i
 
     model = get_model(train_dataset)
 
-    stn_path = p.join(log_dir, 'stn', 'stn_best.pth')
-    if p.exists(stn_path):
-        print('Transfer learning with: ' + stn_path)
-        saved_stn = torch.load(p.join(log_dir, 'stn', 'stn_best.pth'))
-        encoder_dict = {key.replace('loc_net.', ''): value 
-                for (key, value) in saved_stn['model'].items()
-                if 'loc_net.' in key}
-        # pretrain with the STN model
-        model.encoder.load_state_dict(encoder_dict)
-    else:
-        print('No saved STN model exists, skipping transfer learning...')
+    # stn_path = p.join(log_dir, 'stn', 'stn_best.pth')
+    # if p.exists(stn_path):
+    #     print('Transfer learning with: ' + stn_path)
+    #     saved_stn = torch.load(p.join(log_dir, 'stn', 'stn_best.pth'))
+    #     encoder_dict = {key.replace('loc_net.', ''): value 
+    #             for (key, value) in saved_stn['model'].items()
+    #             if 'loc_net.' in key}
+    #     # pretrain with the STN model
+    #     model.encoder.load_state_dict(encoder_dict)
+    # else:
+    #     print('No saved STN model exists, skipping transfer learning...')
 
     loss_fn = loss.DiceLoss()
     optimizer = optim.Adam(model.parameters(), lr=lr)
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=5, verbose=True)
 
     writer = SummaryWriter(log_dir=f'{log_dir}/seg')
     for epoch in range(1, epochs + 1):
-      utils.train(model, loss_fn, optimizer, epoch, train_loader, val_loader, writer=writer, checkpoint_name='seg_best.pth')
+      utils.train(model, loss_fn, optimizer, epoch, train_loader, val_loader, writer=writer, checkpoint_name='seg_best.pth', scheduler=scheduler)
     writer.close()
 
 #TODO: Save arguments json file
@@ -110,4 +110,5 @@ if __name__ == '__main__':
         '--log-name', type=str, default=datetime.datetime.now().strftime("%Y-%m-%d-%H:%M:%S"), help='name of folder where checkpoints are stored',
     )
     args = parser.parse_args()
+    utils.save_args(args, 'seg')
     train_seg(**vars(args))

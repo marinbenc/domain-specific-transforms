@@ -1,5 +1,6 @@
 import os
 import os.path as p
+import json
 
 import torch
 
@@ -67,6 +68,10 @@ def crop_to_label(input, label, padding=32, bbox_aug=0):
   label_cropped = np.array(Image.fromarray(label_cropped).resize(original_size, resample=PIL.Image.NEAREST))
   return input_cropped, label_cropped
 
+def save_args(args, folder):
+    args_file = os.path.join('runs', args.log_name, folder, 'args.json')
+    with open(args_file, 'w') as fp:
+        json.dump(vars(args), fp)
 
 def save_checkpoint(name, log_dir, model, epoch, optimizer, loss):
     file_name = p.join(log_dir, name)

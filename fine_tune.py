@@ -127,4 +127,5 @@ if __name__ == '__main__':
         '--log-name', type=str, default=datetime.datetime.now().strftime("%Y-%m-%d-%H:%M:%S"), help='name of folder where checkpoints are stored',
     )
     args = parser.parse_args()
+    utils.save_args(args, 'fine')
     fine_tune(**vars(args))
