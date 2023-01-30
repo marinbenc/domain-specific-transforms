@@ -18,8 +18,8 @@ class LesionDataset(base_dataset.BaseDataset):
     augment: Whether to augment the dataset.
   """
   dataset_folder = 'lesion'
-  width = 512
-  height = 512
+  width = 256
+  height = 256
 
   in_channels = 3
   out_channels = 1

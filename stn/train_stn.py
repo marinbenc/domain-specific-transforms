@@ -43,9 +43,6 @@ def train_stn(batch_size, epochs, lr, dataset, subset, log_name):
     def worker_init(worker_id):
         np.random.seed(2022 + worker_id)
 
-    log_dir = f'runs/{log_name}/stn'
-    if p.exists(log_dir):
-        shutil.rmtree(log_dir)
     os.makedirs(log_dir, exist_ok=True)
 
     train_dataset, valid_dataset = data.get_datasets(dataset, subset, augment=False)
@@ -120,6 +117,11 @@ if __name__ == '__main__':
     parser.add_argument(
         '--log-name', type=str, default=datetime.datetime.now().strftime("%Y-%m-%d-%H:%M:%S"), help='name of folder where checkpoints are stored',
     )
+
     args = parser.parse_args()
+    log_dir = f'runs/{args.log_name}/stn'
+    if p.exists(log_dir):
+        shutil.rmtree(log_dir)
+
     utils.save_args(args, 'stn')
     train_stn(**vars(args))

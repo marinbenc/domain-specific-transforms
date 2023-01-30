@@ -61,9 +61,6 @@ def fine_tune(batch_size, epochs, lr, dataset, subset, log_name):
     def worker_init(worker_id):
         np.random.seed(2022 + worker_id)
 
-    log_dir = Path(f'runs/{log_name}')
-    if p.exists(log_dir/'fine'):
-        shutil.rmtree(log_dir/'fine')
     os.makedirs(log_dir/'fine', exist_ok=True)
 
 
@@ -127,5 +124,9 @@ if __name__ == '__main__':
         '--log-name', type=str, default=datetime.datetime.now().strftime("%Y-%m-%d-%H:%M:%S"), help='name of folder where checkpoints are stored',
     )
     args = parser.parse_args()
+    log_dir = Path(f'runs/{args.log_name}')
+    if p.exists(log_dir/'fine'):
+        shutil.rmtree(log_dir/'fine')
+
     utils.save_args(args, 'fine')
     fine_tune(**vars(args))

@@ -40,9 +40,6 @@ def train_seg(batch_size, epochs, lr, dataset, subset, log_name, untransformed_i
     def worker_init(worker_id):
         np.random.seed(2022 + worker_id)
 
-    log_dir = Path(f'runs/{log_name}')
-    if p.exists(log_dir/'seg'):
-        shutil.rmtree(log_dir/'seg')
     os.makedirs(log_dir/'seg', exist_ok=True)
 
     train_dataset, val_dataset = data.get_datasets(dataset, subset, stn_transformed=not untransformed_images)
@@ -110,5 +107,9 @@ if __name__ == '__main__':
         '--log-name', type=str, default=datetime.datetime.now().strftime("%Y-%m-%d-%H:%M:%S"), help='name of folder where checkpoints are stored',
     )
     args = parser.parse_args()
+    log_dir = Path(f'runs/{args.log_name}')
+    if p.exists(log_dir/'seg'):
+        shutil.rmtree(log_dir/'seg')
+
     utils.save_args(args, 'seg')
     train_seg(**vars(args))
