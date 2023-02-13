@@ -41,6 +41,7 @@ class BaseDataset(Dataset):
       directory_files = [p.join(directory, 'label', f) for f in directory_files]
       directory_files.sort()
       self.file_names += directory_files
+      self.file_names.sort()
 
   def get_item_np(self, idx):
     """

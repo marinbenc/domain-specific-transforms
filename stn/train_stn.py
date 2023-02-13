@@ -68,7 +68,7 @@ def train_stn(batch_size, epochs, lr, dataset, subset, log_name):
         print('No saved SEG model exists, skipping transfer learning...')
 
     optimizer = optim.Adam(model.parameters(), lr=lr)
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.1, patience=5, verbose=True)
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.1, patience=5, verbose=True, min_lr=1e-15, eps=1e-15)
 
     writer = SummaryWriter(log_dir=log_dir)
 

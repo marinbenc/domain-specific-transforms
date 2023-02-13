@@ -1,7 +1,9 @@
 import numpy as np
 import argparse
 import torch
+import cv2 as cv
 
+import os
 import os.path as p
 
 from torch.utils.data import DataLoader, ConcatDataset
@@ -110,7 +112,7 @@ def calculate_metrics(ys_pred, ys, metrics):
 
   return df
 
-def test(model_type, dataset, log_name, dataset_folder, subset, transformed_images):
+def test(model_type, dataset, log_name, dataset_folder, subset, transformed_images, save_predictions):
   train_dataset, valid_dataset = data.get_datasets(dataset, subset, augment=False, stn_transformed=transformed_images)
   whole_dataset = data.get_whole_dataset(dataset, subset, stn_transformed=transformed_images)
   test_dataset = data.get_test_dataset(dataset, subset, stn_transformed=transformed_images)
@@ -146,6 +148,11 @@ def test(model_type, dataset, log_name, dataset_folder, subset, transformed_imag
     model.load_state_dict(checkpoint['model'])
 
   xs, ys, ys_pred = get_predictions(model, test_dataset)
+
+  if save_predictions:
+    os.makedirs(p.join('predictions', log_name, subset), exist_ok=True)
+    for i in range(len(ys_pred)):
+      cv.imwrite(p.join('predictions', log_name, subset, f'{i}.png'), ys_pred[i] * 255)
     
   metrics = {
     'dsc': utils.dsc,
@@ -155,6 +162,8 @@ def test(model_type, dataset, log_name, dataset_folder, subset, transformed_imag
   df = calculate_metrics(ys, ys_pred, metrics)
 
   print(df.describe())
+
+  return df
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
@@ -177,6 +186,9 @@ if __name__ == '__main__':
     )
     parser.add_argument(
         '--transformed-images', action='store_true', help="use GT STN-transformed images for testing"
+    )
+    parser.add_argument(
+        '--save-predictions', action='store_true', help="save predicted images in the predictions/ folder"
     )
     args = parser.parse_args()
     test(**vars(args))

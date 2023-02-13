@@ -1,6 +1,6 @@
 data/**/*.*
 !data/**/*.py
-
+predictions/
 runs/
 
 # Created by https://www.toptal.com/developers/gitignore/api/python,visualstudiocode
