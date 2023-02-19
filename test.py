@@ -112,10 +112,10 @@ def calculate_metrics(ys_pred, ys, metrics):
 
   return df
 
-def test(model_type, dataset, log_name, dataset_folder, subset, transformed_images, save_predictions):
-  train_dataset, valid_dataset = data.get_datasets(dataset, subset, augment=False, stn_transformed=transformed_images)
-  whole_dataset = data.get_whole_dataset(dataset, subset, stn_transformed=transformed_images)
-  test_dataset = data.get_test_dataset(dataset, subset, stn_transformed=transformed_images)
+def test(model_type, dataset, log_name, dataset_folder, subset, transforms, save_predictions):
+  train_dataset, valid_dataset = data.get_datasets(dataset, subset, augment=False, transforms=transforms)
+  whole_dataset = data.get_whole_dataset(dataset, subset, transforms=transforms)
+  test_dataset = data.get_test_dataset(dataset, subset, transforms=transforms)
 
   if dataset_folder == 'train':
     test_dataset = train_dataset
@@ -184,9 +184,7 @@ if __name__ == '__main__':
     parser.add_argument(
         '--log-name', type=str, required=True, help='name of folder where checkpoints are stored',
     )
-    parser.add_argument(
-        '--transformed-images', action='store_true', help="use GT STN-transformed images for testing"
-    )
+    parser.add_argument('--transforms', default=[], nargs='*', help='list of transformations for preprocessing; possible values: stn, itn')
     parser.add_argument(
         '--save-predictions', action='store_true', help="save predicted images in the predictions/ folder"
     )

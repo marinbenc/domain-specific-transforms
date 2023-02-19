@@ -14,12 +14,47 @@ from medpy.metric.binary import recall as mp_recall
 from medpy.metric.binary import dc
 
 import torchvision.transforms.functional as F
+import kornia as K
 
 import PIL
 from PIL import Image
 
 device = 'cuda'
 best_loss = float('inf')
+
+def dull_razor(img):
+  """
+  Applies the DullRazor algorithm to the image.
+  img should be an RGB numpy array of shape (H, W, C) between 0 and 255.
+  """
+  grayscale = cv.cvtColor(img, cv.COLOR_RGB2GRAY)
+  kernel = cv.getStructuringElement(1, (3,3))
+  blackhat = cv.morphologyEx(grayscale, cv.MORPH_BLACKHAT, kernel)
+  blurred = cv.GaussianBlur(blackhat, (3,3), cv.BORDER_DEFAULT)
+  _, hair_mask = cv.threshold(blurred, 10, 255, cv.THRESH_BINARY)
+  result = cv.inpaint(img, hair_mask, 6, cv.INPAINT_TELEA)
+  #show_images_row(imgs=[img, hair_mask, result], titles=['Original', 'Hair Mask', 'Result'], figsize=(10, 5))
+  return result
+
+
+# TODO: Move this to separate transforms file
+# Idea: Both STN and ITN transforms live in the dataset, don't have separate datasets for each
+def itn_transform_lesion(img):
+  img += 0.5
+  img = img.unsqueeze(0)
+
+  #img = K.enhance.equalize(img)
+  img = K.enhance.equalize_clahe(img, clip_limit=2.)
+  img = K.filters.UnsharpMask((9,9), (4,4))(img)
+
+  img_np = img.squeeze(0).numpy().transpose(1, 2, 0)
+  img_np = dull_razor((img_np * 255).astype(np.uint8)).astype(np.float32) / 255.
+  
+  img = torch.from_numpy(img_np).permute(2, 0, 1)
+  img -= 0.5
+
+  return img
+
 
 def crop_to_label(input, label, padding=32, bbox_aug=0):
   """ 
@@ -93,6 +128,7 @@ def train(model, loss_fn, optimizer, epoch, train_loader, val_loader, writer, ch
     loss_total = 0
     for batch_idx, (data, target) in enumerate(train_loader):
         data, target = data.to(device), target.to(device)
+        #show_torch(imgs=[data[0] + 0.5, target[0]])
         optimizer.zero_grad()
         output = model(data)
         loss = loss_fn(output, target)

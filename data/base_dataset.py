@@ -14,6 +14,7 @@ class BaseDataset(Dataset):
   Attributes:
     directory: The directory to load the dataset from. One of 'train', 'test', 'valid' or 'all'.
     augment: Whether to augment the dataset.
+    transforms: possible values: 'stn' - GT STN transform as preprocessing, 'itn' - GT ITN transform as preprocessing.
   """
 
   dataset_folder = None
@@ -23,11 +24,11 @@ class BaseDataset(Dataset):
   in_channels = 1
   out_channels = 1
 
-  def __init__(self, directory, subset='', augment=True, stn_transformed=False):
+  def __init__(self, directory, subset='', augment=True, transforms=[]):
     self.mode = directory
     self.augment = augment
     self.subset = subset
-    self.stn_transformed = stn_transformed
+    self.transforms = transforms
 
     if directory == 'all':
       directories = ['train', 'valid', 'test']

@@ -36,13 +36,13 @@ def get_model(dataset):
     model.to('cuda')
     return model
 
-def train_seg(batch_size, epochs, lr, dataset, subset, log_name, untransformed_images):
+def train_seg(batch_size, epochs, lr, dataset, subset, log_name, transforms):
     def worker_init(worker_id):
         np.random.seed(2022 + worker_id)
 
     os.makedirs(log_dir/'seg', exist_ok=True)
 
-    train_dataset, val_dataset = data.get_datasets(dataset, subset, stn_transformed=not untransformed_images)
+    train_dataset, val_dataset = data.get_datasets(dataset, subset, transforms=transforms)
 
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, worker_init_fn=worker_init)
     val_loader = DataLoader(val_dataset, worker_init_fn=worker_init)
@@ -100,9 +100,7 @@ if __name__ == '__main__':
     parser.add_argument(
         '--subset', type=str, choices=data.lesion_subsets, default='isic', help='which dataset to use'
     )
-    parser.add_argument(
-        '--untransformed-images', action='store_true', help="don't use GT STN-transformed images in the training dataset"
-    )
+    parser.add_argument('--transforms', default=['stn', 'itn'], nargs='*', help='list of transformations for preprocessing')
     parser.add_argument(
         '--log-name', type=str, default=datetime.datetime.now().strftime("%Y-%m-%d-%H:%M:%S"), help='name of folder where checkpoints are stored',
     )

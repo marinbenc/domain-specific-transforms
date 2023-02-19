@@ -4,6 +4,7 @@ import numpy as np
 import cv2 as cv
 import matplotlib.pyplot as plt
 import albumentations as A
+import kornia as K
 
 import utils
 import data.base_dataset as base_dataset
@@ -56,10 +57,10 @@ class LesionDataset(base_dataset.BaseDataset):
       input = transformed['image']
       label = transformed['mask']
 
-    if self.stn_transformed:
+    if 'stn' in self.transforms:
       bbox_aug = 32 if self.augment and self.mode == 'train' else 0
       input, label = utils.crop_to_label(input, label, bbox_aug=bbox_aug)
-
+    
     return input, label
 
   def __getitem__(self, idx):
@@ -79,6 +80,9 @@ class LesionDataset(base_dataset.BaseDataset):
     label = label.transpose(2, 0, 1)
 
     input_tensor = torch.from_numpy(input)
+    if 'itn' in self.transforms:
+      input_tensor = utils.itn_transform_lesion(input_tensor)
+
     label_tensor = torch.from_numpy(label)
 
     #utils.show_torch([input_tensor + 0.5, label_tensor])
