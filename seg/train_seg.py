@@ -32,7 +32,7 @@ torch.manual_seed(2022)
 device = 'cuda'
 
 def get_model(dataset):
-    model = smp.Unet('resnet18', in_channels=dataset.in_channels, classes=1, activation='sigmoid')
+    model = smp.Unet('resnet18', in_channels=dataset.in_channels, classes=1, activation='sigmoid', decoder_use_batchnorm=True)
     model.to('cuda')
     return model
 
@@ -98,7 +98,7 @@ if __name__ == '__main__':
         '--dataset', type=str, choices=data.dataset_choices, default='lesion', help='which dataset to use'
     )
     parser.add_argument(
-        '--subset', type=str, choices=data.lesion_subsets, default='isic', help='which dataset to use'
+        '--subset', type=str, choices=data.all_subsets, default='isic', help='which dataset to use'
     )
     parser.add_argument('--transforms', default=['stn', 'itn'], nargs='*', help='list of transformations for preprocessing')
     parser.add_argument(

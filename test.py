@@ -176,7 +176,7 @@ if __name__ == '__main__':
         '--dataset', type=str, choices=data.dataset_choices, default='lesion', help='which dataset to use'
     )
     parser.add_argument(
-        '--subset', type=str, choices=data.lesion_subsets, default='isic', help='which dataset to use'
+        '--subset', type=str, choices=data.all_subsets, default='isic', help='which dataset to use'
     )
     parser.add_argument(
         '--dataset-folder', type=str, choices=['train', 'valid', 'test', 'all'], default='test'
