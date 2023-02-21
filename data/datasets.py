@@ -8,6 +8,18 @@ lesion_subsets = ['isic', 'dermquest', 'dermis']
 aorta_subsets = ['D', 'K', 'R']
 all_subsets = lesion_subsets + aorta_subsets
 
+def get_dataset_class(dataset_name):
+  if dataset_name == 'lesion':
+    return lesion.LesionDataset
+  elif dataset_name == 'liver':
+    return liver.LiverDataset
+  elif dataset_name == 'eat':
+    return eat.EATDataset
+  elif dataset_name == 'aorta':
+    return aorta.AortaDataset
+  else:
+    raise ValueError(f'Unknown dataset name: {dataset_name}')
+
 def get_datasets(dataset, subset='isic', augment=True, transforms=[]):
   if dataset == 'lesion':
     train_dataset = lesion.LesionDataset(directory='train', augment=augment, subset=subset, transforms=transforms)
@@ -27,6 +39,8 @@ def get_whole_dataset(dataset, subset='isic', transforms=[]):
     dataset = lesion.LesionDataset(directory='all', subset=subset, augment=False, transforms=transforms)
   elif dataset == 'liver':
     dataset = liver.LiverDataset(directory='all', augment=False, transforms=transforms)
+  elif dataset == 'aorta':
+    dataset = aorta.AortaDataset(directory='all', subset=subset, augment=False, transforms=transforms)
   elif dataset == 'eat':
     dataset = eat.EATDataset(directory='all', augment=False, transforms=transforms)
   return dataset

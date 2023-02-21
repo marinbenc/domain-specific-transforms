@@ -164,8 +164,8 @@ def train(model, loss_fn, optimizer, epoch, train_loader, val_loader, writer, ch
         best_loss = loss_total
         save_checkpoint(checkpoint_name, writer.log_dir, model, epoch, optimizer, loss_total)
 
-    #if (epoch - 1) % 10 == 0:
-    #  show_torch(imgs=[data[0] + 0.5, output[0] + 0.5, target[0] + 0.5])
+    if (epoch - 1) % 5 == 0:
+      show_torch(imgs=[data[0], output[0], target[0]])
 
 def _thresh(img):
   img[img > 0.5] = 1

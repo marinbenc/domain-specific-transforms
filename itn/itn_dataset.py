@@ -27,52 +27,34 @@ class ITNDataset(Dataset):
   Attributes:
     wrapped_dataset: The dataset to wrap.
   """
-  def __init__(self, wrapped_dataset, transforms, augment=False, segmentation=False):
-    # TODO: Refactor segmentation to lesiondataset
-    self.transforms = transforms
-    self.wrapped_dataset = wrapped_dataset
-    self.augment = augment
-    self.segmentation = segmentation
+  def __init__(self, wrapped_dataset_class, subset='', directory='train'):
+    self.wrapped_dataset = wrapped_dataset_class(directory, subset=subset, augment=False, transforms=[])
+    self.wrapped_dataset_itn = wrapped_dataset_class(directory, subset=subset, augment=False, transforms=['itn'])
 
   def get_augmentation(self):
     return A.Compose([
       A.HorizontalFlip(p=0.5),
-      A.VerticalFlip(p=0.5),
-      A.RandomRotate90(p=0.5),
-      A.RandomBrightnessContrast(p=0.5),
-      A.ColorJitter(p=0.5),
-    ])
+      A.GridDistortion(p=0.5),
+      A.ShiftScaleRotate(p=0.5, rotate_limit=15, scale_limit=0.15, shift_limit=0.15),
+      A.RandomBrightnessContrast(p=1, brightness_by_max=False),
+      A.RandomGamma(p=1),
+      ToTensorV2()
+    ], additional_targets={'image_itn': 'image'})
 
   def __len__(self):
     return len(self.wrapped_dataset)
 
   def __getitem__(self, idx):
-    input, label = self.wrapped_dataset[idx]
-    if input.shape[0] == 1:
-      input_np = input.squeeze().numpy()
-    else:
-      input_np = input.numpy().transpose(1, 2, 0)
-    label_np = label.squeeze().numpy()
+    input, label = self.wrapped_dataset.get_item_np(idx)
+    input_itn, _ = self.wrapped_dataset_itn.get_item_np(idx)
 
-    if self.augment:
-      augmentation = self.get_augmentation()
-      transformed = augmentation(image=input_np, mask=label_np)
-      input_np = transformed['image']
-      label_np = transformed['mask']
+    augmentation = self.get_augmentation()
+    transformed = augmentation(image=input, image_itn=input_itn, mask=label)
+    input = transformed['image'].float()
+    input_itn = transformed['image_itn'].float()
+    label = transformed['mask']
 
-    orig_transformed = ToTensorV2()(image=input_np, mask=label_np)
-    input = orig_transformed['image']
-    label = orig_transformed['mask']
-    transformed = self.transforms(input)
+    #utils.show_torch(imgs=[input, input_itn, label])
 
-
-    #utils.show_torch(imgs=[input + 0.5, input_cropped + 0.5, label])
-
-    if self.segmentation:
-      return transformed, label
-    else:
-      return input, transformed
-
-
-
+    return input, input_itn
     

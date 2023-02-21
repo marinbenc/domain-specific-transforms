@@ -31,8 +31,8 @@ torch.manual_seed(2022)
 
 device = 'cuda'
 
-def get_model(dataset):
-    model = smp.Unet('resnet18', in_channels=dataset.in_channels, classes=1, activation='sigmoid', decoder_use_batchnorm=True)
+def get_model(dataset, sigmoid_activation=True):
+    model = smp.Unet('resnet18', in_channels=dataset.in_channels, classes=1, activation='sigmoid' if sigmoid_activation else 'identity', decoder_use_batchnorm=True)
     model.to('cuda')
     return model
 
