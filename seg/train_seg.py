@@ -32,8 +32,8 @@ torch.manual_seed(2022)
 device = 'cuda'
 
 def get_model(dataset, sigmoid_activation=True):
-    model = smp.Unet('resnet18', in_channels=dataset.in_channels, classes=1, activation='sigmoid' if sigmoid_activation else 'identity', decoder_use_batchnorm=True)
-    model.to('cuda')
+    model = smp.Unet('resnet18', in_channels=dataset.in_channels, classes=1, activation='sigmoid' if sigmoid_activation else None, decoder_use_batchnorm=True)
+    model.to(device)
     return model
 
 def train_seg(batch_size, epochs, lr, dataset, subset, log_name, transforms):

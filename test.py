@@ -136,7 +136,15 @@ def test(model_type, dataset, log_name, dataset_folder, subset, transforms, save
     model = fine_tune.get_model(test_dataset, log_name)
     stn_checkpoint = get_checkpoint('stn', log_name)
     seg_checkpoint = get_checkpoint('seg', log_name)
+    model.itn = None
     model.stn.load_state_dict(stn_checkpoint['model'])
+    model.seg.load_state_dict(seg_checkpoint['model'])
+  if model_type == 'itn-to-seg':
+    model = fine_tune.get_model(test_dataset, log_name)
+    itn_checkpoint = get_checkpoint('itn', log_name)
+    seg_checkpoint = get_checkpoint('seg', log_name)
+    model.itn.load_state_dict(itn_checkpoint['model'])
+    model.stn = None
     model.seg.load_state_dict(seg_checkpoint['model'])
   else:
     if model_type == 'seg':
@@ -170,7 +178,7 @@ if __name__ == '__main__':
         description='Test a trained model'
     )
     parser.add_argument(
-        '--model-type', type=str, choices=['seg', 'stn', 'fine', 'stn-to-seg'], required=True, help='type of model to be tested',
+        '--model-type', type=str, choices=['seg', 'stn', 'fine', 'stn-to-seg', 'itn-to-seg'], required=True, help='type of model to be tested',
     )
     parser.add_argument(
         '--dataset', type=str, choices=data.dataset_choices, default='lesion', help='which dataset to use'

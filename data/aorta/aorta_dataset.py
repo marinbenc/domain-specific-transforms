@@ -50,9 +50,13 @@ class AortaDataset(base_dataset.BaseDataset):
     mask = np.load(current_slice_file)
     scan = scan.astype(np.float)
 
+    scan[scan < -1000] = -1000
+    scan[scan > 1000] = 1000
+
     if 'itn' in self.transforms:
       aorta_region = scan[mask > 0]
       th_padding = 10
+
       self.WINDOW_MAX = np.percentile(aorta_region, 99) + th_padding
       self.WINDOW_MIN = np.percentile(aorta_region, 1) - th_padding
 
@@ -62,11 +66,10 @@ class AortaDataset(base_dataset.BaseDataset):
 
       # plt.imshow(scan, cmap='gray')
       # plt.show()
-
-      # normalize and zero-center
+      # normalize
       scan = (scan - self.WINDOW_MIN) / (self.WINDOW_MAX - self.WINDOW_MIN)
     else:
-      scan = (scan - scan.min()) / (scan.max() - scan.min())
+      scan = (scan + 1000) / 2000
 
     if transform is not None:
       transformed = transform(image=scan, mask=mask)
@@ -79,6 +82,9 @@ class AortaDataset(base_dataset.BaseDataset):
       scan, mask = utils.crop_to_label(scan, mask, bbox_aug=bbox_aug)
 
     return scan, mask
+
+  def __len__(self):
+    return 16
 
   def __getitem__(self, idx):
     if self.augment and self.mode == 'train':

@@ -26,6 +26,7 @@ import data.datasets as data
 import seg.loss as loss
 import seg.train_seg as seg
 import stn.train_stn as stn
+import itn.train_itn as itn
 import model as m
 import stn.stn_losses as losses
 
@@ -39,10 +40,19 @@ torch.manual_seed(2022)
 device = 'cuda'
 
 def get_model(dataset, log_name):
-  stn_model = stn.get_model(dataset)
-  stn_checkpoint_f = p.join('runs', log_name, 'stn', 'stn_best.pth')
-  stn_checkpoint = torch.load(stn_checkpoint_f)
-  stn_model.load_state_dict(stn_checkpoint['model'])
+  if p.exists(p.join('runs', log_name, 'stn', 'stn_best.pth')):
+    stn_model = stn.get_model(dataset)
+    stn_checkpoint_f = p.join('runs', log_name, 'stn', 'stn_best.pth')
+    stn_checkpoint = torch.load(stn_checkpoint_f)
+    stn_model.load_state_dict(stn_checkpoint['model'])
+  else:
+    stn_model = None
+
+  itn_model = itn.get_model(dataset)
+  itn_checkpoint_f = p.join('runs', log_name, 'itn', 'itn_best.pth')
+  itn_checkpoint = torch.load(itn_checkpoint_f)
+  itn_model.load_state_dict(itn_checkpoint['model'])
+
 #   for param in stn_model.parameters():
 #     param.requires_grad = False
 
@@ -53,7 +63,7 @@ def get_model(dataset, log_name):
   seg_checkpoint = torch.load(seg_checkpoint_f)
   seg_model.load_state_dict(seg_checkpoint['model'])
 
-  model = m.TransformedSegmentation(stn_model, seg_model)
+  model = m.TransformedSegmentation(itn_model, stn_model, seg_model)
   return model
 
     

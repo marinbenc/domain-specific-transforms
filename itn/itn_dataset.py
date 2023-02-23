@@ -30,14 +30,17 @@ class ITNDataset(Dataset):
   def __init__(self, wrapped_dataset_class, subset='', directory='train'):
     self.wrapped_dataset = wrapped_dataset_class(directory, subset=subset, augment=False, transforms=[])
     self.wrapped_dataset_itn = wrapped_dataset_class(directory, subset=subset, augment=False, transforms=['itn'])
+    self.in_channels = self.wrapped_dataset.in_channels
+    self.out_channels = self.wrapped_dataset.out_channels
 
   def get_augmentation(self):
     return A.Compose([
       A.HorizontalFlip(p=0.5),
       A.GridDistortion(p=0.5),
       A.ShiftScaleRotate(p=0.5, rotate_limit=15, scale_limit=0.15, shift_limit=0.15),
-      A.RandomBrightnessContrast(p=1, brightness_by_max=False),
-      A.RandomGamma(p=1),
+      A.GaussianBlur(p=0.5),
+      A.RandomBrightnessContrast(p=0.5, brightness_limit=0.1, contrast_limit=0.1, brightness_by_max=False),
+      #A.RandomGamma(p=1, gamma_limit=0.5),
       ToTensorV2()
     ], additional_targets={'image_itn': 'image'})
 
