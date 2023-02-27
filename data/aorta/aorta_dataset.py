@@ -84,7 +84,7 @@ class AortaDataset(base_dataset.BaseDataset):
     return scan, mask
 
   def __len__(self):
-    return 16
+    return len(self.file_names)
 
   def __getitem__(self, idx):
     if self.augment and self.mode == 'train':

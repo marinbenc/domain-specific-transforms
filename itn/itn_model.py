@@ -62,8 +62,8 @@ class ITN(nn.Module):
       xs = xs.view(-1, 512 * 4 * 4)
       theta = self.loc_head(xs)
 
-      th_low = theta[:, 0].view(-1, 1, 1, 1)
-      th_high = theta[:, 1].view(-1, 1, 1, 1)
+      th_low = theta[:, 0].view(-1, 1, 1, 1).clip(0, 1)
+      th_high = theta[:, 1].view(-1, 1, 1, 1).clip(0, 1)
       x = x * self.smooth_threshold(x, th_low, th_high)
       #x = (x - x.min()) / (x.max() - x.min() + 1e-8)
       #plt.imshow(x[0, 0].detach().cpu().numpy())
