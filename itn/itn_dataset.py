@@ -27,7 +27,8 @@ class ITNDataset(Dataset):
   Attributes:
     wrapped_dataset: The dataset to wrap.
   """
-  def __init__(self, wrapped_dataset_class, subset='', directory='train'):
+  def __init__(self, wrapped_dataset_class, subset='', directory='train', augment=False):
+    self.augment = augment
     self.wrapped_dataset = wrapped_dataset_class(directory, subset=subset, augment=False, transforms=[])
     self.wrapped_dataset_itn = wrapped_dataset_class(directory, subset=subset, augment=False, transforms=['itn'])
     self.in_channels = self.wrapped_dataset.in_channels
@@ -45,14 +46,20 @@ class ITNDataset(Dataset):
     ], additional_targets={'image_itn': 'image'})
 
   def __len__(self):
+    return 16
     return len(self.wrapped_dataset)
 
   def __getitem__(self, idx):
     input, label = self.wrapped_dataset.get_item_np(idx)
     input_itn, _ = self.wrapped_dataset_itn.get_item_np(idx)
 
-    augmentation = self.get_augmentation()
-    transformed = augmentation(image=input, image_itn=input_itn, mask=label)
+    pipeline = A.Compose([
+      ToTensorV2(),
+    ], additional_targets={'image_itn': 'image'})
+    if self.augment:
+      pipeline = self.get_augmentation()
+
+    transformed = pipeline(image=input, image_itn=input_itn, mask=label)
     input = transformed['image'].float()
     input_itn = transformed['image_itn'].float()
     label = transformed['mask']

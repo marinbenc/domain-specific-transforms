@@ -35,39 +35,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-class ITN2D(nn.Module):
-
-    def __init__(self, input_channels):
-        super(ITN2D, self).__init__()
-        use_bias = True
-        self.conv11 = nn.Conv2d(input_channels, 2, kernel_size=3, padding=1, bias=use_bias)
-        self.conv12 = nn.Conv2d(2, 4, kernel_size=3, padding=1, bias=use_bias)
-        self.down1 = nn.Conv2d(4, 8, kernel_size=2, stride=2, bias=use_bias)
-        self.conv21 = nn.Conv2d(8, 8, kernel_size=3, padding=1, bias=use_bias)
-        self.down2 = nn.Conv2d(8, 16, kernel_size=2, stride=2, bias=use_bias)
-        self.conv31 = nn.Conv2d(16, 16, kernel_size=3, padding=1, bias=use_bias)
-        self.up2 = nn.ConvTranspose2d(16, 8, kernel_size=2, stride=2, bias=use_bias)
-        self.conv22 = nn.Conv2d(8, 8, kernel_size=3, padding=1, bias=use_bias)
-        self.up1 = nn.ConvTranspose2d(8, 4, kernel_size=2, stride=2, bias=use_bias)
-        self.conv13 = nn.Conv2d(4, 2, kernel_size=3, padding=1, bias=use_bias)
-        self.conv14 = nn.Conv2d(2, 2, kernel_size=3, padding=1, bias=use_bias)
-        self.conv15 = nn.Conv2d(2, input_channels, kernel_size=3, padding=1, bias=use_bias)
-
-    def forward(self, x):
-        x1 = F.relu(self.conv11(x))
-        x1 = F.relu(self.conv12(x1))
-        x2 = self.down1(x1)
-        x2 = F.relu(self.conv21(x2))
-        x3 = self.down2(x2)
-        x3 = F.relu(self.conv31(x3))
-        x2 = self.up2(x3) + x2
-        x2 = F.relu(self.conv22(x2))
-        x1 = self.up1(x2) + x1
-        x1 = F.relu(self.conv13(x1))
-        x1 = F.relu(self.conv14(x1))
-        x = self.conv15(x1)
-
-        return x
+import itn.pix2pix as pix2pix
 
 def get_model(dataset):
     #seg_model = seg.get_model(dataset, sigmoid_activation=False)
@@ -83,12 +51,12 @@ def train_itn(batch_size, epochs, lr, dataset, subset, log_name):
     os.makedirs(log_dir, exist_ok=True)
 
     dataset_class = data.get_dataset_class(dataset)
-    train_dataset = itn_dataset.ITNDataset(dataset_class, subset=subset, directory='train')
-    valid_dataset = itn_dataset.ITNDataset(dataset_class, subset=subset, directory='valid')
+    train_dataset = itn_dataset.ITNDataset(dataset_class, subset=subset, directory='train', augment=False)
+    valid_dataset = itn_dataset.ITNDataset(dataset_class, subset=subset, directory='valid', augment=False)
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, worker_init_fn=worker_init)
     valid_loader = DataLoader(valid_dataset, worker_init_fn=worker_init)
     
-    model = get_model(train_dataset)
+    #model = get_model(train_dataset)
 
     # TODO: Check if you should pretrain with STN or SEG?
     # seg_path = p.join(log_dir, '../seg', 'seg_best.pth')
@@ -103,17 +71,68 @@ def train_itn(batch_size, epochs, lr, dataset, subset, log_name):
     # else:
     #     print('No saved SEG model exists, skipping transfer learning...')
 
-    optimizer = optim.Adam(model.parameters(), lr=lr)
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.1, patience=5, verbose=True, min_lr=1e-15, eps=1e-15)
+    generator = pix2pix.Generator()
+    generator.weight_init(mean=0.0, std=0.02)
+    generator.to('cuda')
+
+    discriminator = pix2pix.Discriminator()
+    discriminator.weight_init(mean=0.0, std=0.02)
+    discriminator.to('cuda')
+
+    generator.train()
+    discriminator.train()
+
+    g_optim = optim.Adam(generator.parameters(), lr=lr, betas=(0.5, 0.999))
+    d_optim = optim.Adam(discriminator.parameters(), lr=lr, betas=(0.5, 0.999))
+
+    #scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.1, patience=5, verbose=True, min_lr=1e-15, eps=1e-15)
 
     writer = SummaryWriter(log_dir=log_dir)
 
-    loss = torch.nn.MSELoss()
-    #loss = torch.nn.L1Loss()
+    #loss = torch.nn.MSELoss()
+    loss = torch.nn.L1Loss()
 
     for epoch in range(1, epochs + 1):
-        utils.train(model, loss, optimizer, epoch, train_loader, valid_loader, writer=writer, checkpoint_name='itn_best.pth', scheduler=scheduler)
-    
+      d_loss_total = 0
+      g_loss_total = 0
+
+      for (i, (x, y)) in enumerate(train_loader):
+        # discriminator training
+        x = x.to('cuda')
+        y = y.to('cuda')
+
+        discriminator.zero_grad()
+        d_result = discriminator(x, y).squeeze()
+        d_real_loss = F.binary_cross_entropy_with_logits(d_result, torch.ones_like(d_result))
+
+        g_result = generator(x)
+        d_result = discriminator(x, g_result).squeeze()
+        d_fake_loss = F.binary_cross_entropy_with_logits(d_result, torch.zeros_like(d_result))
+
+        d_loss = (d_real_loss + d_fake_loss) * 0.5
+        d_loss_total += d_loss.item()
+        d_loss.backward()
+        d_optim.step()
+
+        # generator training
+        generator.zero_grad()
+        g_result = generator(x)
+        d_result = discriminator(x, g_result).squeeze()
+        g_loss = F.binary_cross_entropy_with_logits(d_result, torch.ones_like(d_result)) + 100 * loss(g_result, y)
+        g_loss_total += g_loss.item()
+        g_loss.backward()
+        g_optim.step()
+
+      g_loss_total /= len(train_loader)
+      d_loss_total /= len(train_loader)
+      writer.add_scalar('Loss/generator', g_loss_total, epoch)
+      writer.add_scalar('Loss/discriminator', d_loss_total, epoch)
+
+      print('Epoch: {}, Generator Loss: {}, Discriminator Loss: {}'.format(epoch, g_loss_total, d_loss_total))
+
+      if epoch % 100 == 0:
+        utils.show_torch(imgs=[x[0], y[0], g_result[0]])
+
     writer.close()
 
 if __name__ == '__main__':
