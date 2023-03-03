@@ -47,11 +47,16 @@ def get_model(dataset, log_name):
     stn_model.load_state_dict(stn_checkpoint['model'])
   else:
     stn_model = None
+    print('WARNING: No STN model found, proceeding without STN')
 
-  itn_model = itn.get_model(dataset)
-  itn_checkpoint_f = p.join('runs', log_name, 'itn', 'itn_best.pth')
-  itn_checkpoint = torch.load(itn_checkpoint_f)
-  itn_model.load_state_dict(itn_checkpoint['model'])
+  if p.exists(p.join('runs', log_name, 'itn', 'itn_best.pth')):
+    itn_model = itn.get_model(dataset)
+    itn_checkpoint_f = p.join('runs', log_name, 'itn', 'itn_best.pth')
+    itn_checkpoint = torch.load(itn_checkpoint_f)
+    itn_model.load_state_dict(itn_checkpoint['model'])
+  else:
+    itn_model = None
+    print('WARNING: No ITN model found, proceeding without ITN')
 
 #   for param in stn_model.parameters():
 #     param.requires_grad = False

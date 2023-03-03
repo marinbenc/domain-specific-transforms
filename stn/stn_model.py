@@ -19,13 +19,16 @@ class STN(nn.Module):
     loc_net: the localization network
     output_theta: if `True`, the model output will be `(y, theta)`, otherwise it will be `y`
   """
-  def __init__(self, loc_net, output_theta = False):
+  def __init__(self, seg, output_theta = False):
       super(STN, self).__init__()
 
       self.output_theta = output_theta
 
       # Spatial transformer localization-network
-      self.loc_net = loc_net
+      self.loc_net = seg.encoder
+      self.seg_decoder = seg.decoder
+      self.seg_head = seg.segmentation_head
+
       self.avg_pool = nn.AdaptiveAvgPool2d(output_size=(4, 4))
 
       # Regressor for the 3 * 2 affine matrix
@@ -53,11 +56,19 @@ class STN(nn.Module):
   # Spatial transformer network forward function
   def stn(self, x):
       x_original = x.detach().clone()
-      xs = self.loc_net(x)[-1]
-      
-      xs = self.avg_pool(xs)
-      xs = xs.view(-1, 512 * 4 * 4)
-      theta = self.loc_head(xs)
+
+      # encode image
+      x = self.loc_net(x)
+
+      # decode segmentation
+      x_seg = self.seg_decoder(*x)
+      x_seg = self.seg_head(x_seg)
+
+      # STN
+      x_stn = x[-1]
+      x_stn = self.avg_pool(x_stn)
+      x_stn = x_stn.view(-1, 512 * 4 * 4)
+      theta = self.loc_head(x_stn)
 
       # Use the following line to test how sensitive SEG is to STN
       # by uncommenting running the test with --transformed-images and stn-to-seg type
@@ -68,19 +79,19 @@ class STN(nn.Module):
       
       theta = theta.view(-1, 2, 3)
 
-      grid = F.affine_grid(theta, x.size(), align_corners=False)
-      x = F.grid_sample(x, grid)
+      grid = F.affine_grid(theta, x_original.size(), align_corners=False)
+      x_stn = F.grid_sample(x_original, grid)
 
       #utils.show_torch([x_original[0], x[0]])
 
-      return x, theta
+      return x_stn, x_seg, theta
 
   def forward(self, x):
-      x, theta = self.stn(x)
+      x_stn, x_seg, theta = self.stn(x)
       if self.output_theta:
-        return (x, theta)
+        return x, theta
       else:
-        return x
+        return x, x_seg
 
 class STN_CNN(nn.Module):
   """

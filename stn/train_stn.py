@@ -26,6 +26,7 @@ import shutil
 
 import data.datasets as data
 import seg.train_seg as seg
+import seg.loss as seg_loss_fns
 
 random.seed(2022)
 np.random.seed(2022)
@@ -34,8 +35,8 @@ torch.manual_seed(2022)
 best_loss = float('inf')
 
 def get_model(dataset):
-    loc_net = seg.get_model(dataset).encoder
-    model = stn_model.STN(loc_net=loc_net, output_theta=False)
+    seg_model = seg.get_model(dataset)
+    model = stn_model.STN(seg=seg_model, output_theta=False)
     model.to('cuda')
     return model
 
@@ -53,7 +54,6 @@ def train_stn(batch_size, epochs, lr, dataset, subset, log_name):
     valid_loader = DataLoader(stn_valid_dataset, worker_init_fn=worker_init)
     
     model = get_model(train_dataset)
-    model.output_theta = True
 
     seg_path = p.join(log_dir, '../seg', 'seg_best.pth')
     if p.exists(seg_path):
@@ -72,14 +72,15 @@ def train_stn(batch_size, epochs, lr, dataset, subset, log_name):
 
     writer = SummaryWriter(log_dir=log_dir)
 
-    loss = torch.nn.L1Loss()
-    smoothness = losses.IdentityTransformLoss()
+    stn_loss = torch.nn.L1Loss()
+    seg_loss = seg_loss_fns.DiceLoss()
 
     def calculate_loss(output, target):
-        output_img, ouput_theta = output
-        smoothness_loss = smoothness(ouput_theta)
-        img_loss = loss(output_img, target)
-        return img_loss# + smoothness_loss * 0.1
+        stn_output, seg_output = output
+        stn_target, seg_target = target
+        stn_loss_val = stn_loss(stn_output, stn_target)
+        seg_loss_val = seg_loss(seg_output, seg_target)
+        return stn_loss_val + 0.05 * seg_loss_val
 
     for epoch in range(1, epochs + 1):
         utils.train(model, calculate_loss, optimizer, epoch, train_loader, valid_loader, writer=writer, checkpoint_name='stn_best.pth', scheduler=scheduler)

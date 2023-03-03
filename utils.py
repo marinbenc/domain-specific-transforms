@@ -7,6 +7,7 @@ import torch
 
 import matplotlib.pyplot as plt
 import numpy as np
+from numpy.distutils.misc_util import is_sequence
 import cv2 as cv
 
 from medpy.metric.binary import precision as mp_precision
@@ -123,19 +124,28 @@ def train(model, loss_fn, optimizer, epoch, train_loader, val_loader, writer, ch
     global best_loss
     if epoch == 0:
       best_loss = float('inf')
+
+    def move_to_device(data, target):
+      if is_sequence(target):
+        for i in range(len(target)):
+          target[i] = target[i].to(device)
+      else:
+        target = target.to(device)
+      data = data.to(device)
+      return data, target
     
     model.train()
     loss_total = 0
     for batch_idx, (data, target) in enumerate(train_loader):
-        data, target = data.to(device), target.to(device)
-        #show_torch(imgs=[data[0] + 0.5, target[0]])
-        optimizer.zero_grad()
-        output = model(data)
-        loss = loss_fn(output, target)
-        loss.backward()
-        optimizer.step()
-        loss_total += loss.item()
-        
+      data, target = move_to_device(data, target)
+      #show_torch(imgs=[data[0] + 0.5, target[0]])
+      optimizer.zero_grad()
+      output = model(data)
+      loss = loss_fn(output, target)
+      loss.backward()
+      optimizer.step()
+      loss_total += loss.item()
+      
     loss_total /= len(train_loader)
     writer.add_scalar('Loss/train', loss_total, epoch)
 
@@ -146,7 +156,7 @@ def train(model, loss_fn, optimizer, epoch, train_loader, val_loader, writer, ch
       model.eval()
       with torch.no_grad():
         for (data, target) in val_loader:
-          data, target = data.to(device), target.to(device)
+          data, target = move_to_device(data, target)
           output = model(data)
           loss = loss_fn(output, target)
           loss_total += loss.item()

@@ -131,15 +131,14 @@ def test(model_type, dataset, log_name, dataset_folder, subset, transforms, save
     test_dataset = stn_dataset.STNDataset(test_dataset)
     run_stn_predictions(model, test_dataset)
     exit()
-
-  if model_type == 'stn-to-seg':
+  elif model_type == 'stn-to-seg':
     model = fine_tune.get_model(test_dataset, log_name)
     stn_checkpoint = get_checkpoint('stn', log_name)
     seg_checkpoint = get_checkpoint('seg', log_name)
     model.itn = None
     model.stn.load_state_dict(stn_checkpoint['model'])
     model.seg.load_state_dict(seg_checkpoint['model'])
-  if model_type == 'itn-to-seg':
+  elif model_type == 'itn-to-seg':
     model = fine_tune.get_model(test_dataset, log_name)
     itn_checkpoint = get_checkpoint('itn', log_name)
     seg_checkpoint = get_checkpoint('seg', log_name)

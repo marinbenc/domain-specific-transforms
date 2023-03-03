@@ -48,10 +48,15 @@ class STNDataset(Dataset):
       input_np = input.numpy().transpose(1, 2, 0)
     label_np = label.squeeze().numpy()
 
+    # TODO: Refactor this to be similar to the aorta dataset,
+    # i.e. transforms inside lesion dataset and STN like ITN dataset.
+
     label_transforms = self.get_label_transforms()
     transformed = label_transforms(image=input_np, mask=label_np)
     input_np = transformed['image']
     label_np = transformed['mask']
+    label = ToTensorV2()(image=input_np, mask=label_np)['mask']
+    label = label.unsqueeze(0)
 
     input_cropped, _ = utils.crop_to_label(input_np, label_np)
     input_cropped = ToTensorV2()(image=input_cropped)['image']
@@ -63,7 +68,7 @@ class STNDataset(Dataset):
 
     #utils.show_torch(imgs=[input + 0.5, input_cropped + 0.5, label])
 
-    return input, input_cropped
+    return input, (input_cropped, label)
 
 
 
