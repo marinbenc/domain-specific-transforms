@@ -30,13 +30,11 @@ class TransformedSegmentation(nn.Module):
       self.output_theta = False
 
   def forward(self, x):
-    # transform image
+    # transform image    
     if self.itn is not None:
-      #plt.imshow(x[0].squeeze().detach().cpu().numpy())
-      #plt.show()
+      #plt.imshow(x[0].squeeze().detach().cpu().numpy()); plt.show()
       x = self.itn(x)
-      #plt.imshow(x[0].squeeze().detach().cpu().numpy())
-      #plt.show()
+      #plt.imshow(x[0].squeeze().detach().cpu().numpy()); plt.show()
       # normalize x
       #x = (x - x.min()) / (x.max() - x.min())
     

@@ -58,17 +58,17 @@ def train_itn(batch_size, epochs, lr, dataset, subset, log_name):
     model = get_model(train_dataset)
 
     # TODO: Check if you should pretrain with STN or SEG?
-    # seg_path = p.join(log_dir, '../seg', 'seg_best.pth')
-    # if p.exists(seg_path):
-    #     print('Transfer learning with: ' + seg_path)
-    #     saved_seg = torch.load(p.join(log_dir, '../seg', 'seg_best.pth'))
-    #     encoder_dict = {key.replace('encoder.', ''): value 
-    #             for (key, value) in saved_seg['model'].items()
-    #             if 'encoder.' in key}
-    #     # pretrain with the SEG model
-    #     model.encoder.load_state_dict(encoder_dict)
-    # else:
-    #     print('No saved SEG model exists, skipping transfer learning...')
+    seg_path = p.join(log_dir, '../seg', 'seg_best.pth')
+    if p.exists(seg_path):
+        print('Transfer learning with: ' + seg_path)
+        saved_seg = torch.load(p.join(log_dir, '../seg', 'seg_best.pth'))
+        encoder_dict = {key.replace('encoder.', ''): value 
+                for (key, value) in saved_seg['model'].items()
+                if 'encoder.' in key}
+        # pretrain with the SEG model
+        model.loc_net.load_state_dict(encoder_dict)
+    else:
+        print('No saved SEG model exists, skipping transfer learning...')
 
     optimizer = optim.Adam(model.parameters(), lr=lr)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.1, patience=5, verbose=True, min_lr=1e-15, eps=1e-15)

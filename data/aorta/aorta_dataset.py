@@ -55,10 +55,14 @@ class AortaDataset(base_dataset.BaseDataset):
 
     if 'itn' in self.transforms:
       aorta_region = scan[mask > 0]
-      th_padding = 10
+      th_padding = 20
 
       self.WINDOW_MAX = np.percentile(aorta_region, 99) + th_padding
       self.WINDOW_MIN = np.percentile(aorta_region, 1) - th_padding
+
+      if self.augment and self.mode == 'train':
+        self.WINDOW_MAX += np.random.randint(-th_padding * 2, th_padding * 2)
+        self.WINDOW_MIN += np.random.randint(-th_padding * 2, th_padding * 2)
 
       # window input slice
       scan[scan > self.WINDOW_MAX] = self.WINDOW_MIN
