@@ -16,8 +16,13 @@ import cv2 as cv
 def read_scan(file_path):
   ''' Read scan with axial view '''
   data, _ = nrrd.read(file_path)
+  target_min_value = -1000
+  min_value = data.min()
+  data = data - (min_value - target_min_value)
   scan = np.rot90(data)
   scan = scan.astype(np.int16)
+  plt.imshow(scan[..., 50], cmap='gray')
+  plt.show()
   return scan
 
 scans_directory = 'data/avt/'
@@ -38,6 +43,7 @@ for subset in subsets:
   split1 = split0 + int(len(label_files) * 0.2)
 
   split_label_files = (label_files[:split0], label_files[split0:split1], label_files[split1:])
+  split_label_files = [s[:1] for s in split_label_files]
   for split in split_label_files:
     print(len(split))
 

@@ -56,6 +56,7 @@ def train_itn(batch_size, epochs, lr, dataset, subset, log_name):
     valid_loader = DataLoader(valid_dataset, worker_init_fn=worker_init)
     
     model = get_model(train_dataset)
+    model.output_img = False
 
     # TODO: Check if you should pretrain with STN or SEG?
     seg_path = p.join(log_dir, '../seg', 'seg_best.pth')
@@ -75,11 +76,15 @@ def train_itn(batch_size, epochs, lr, dataset, subset, log_name):
 
     writer = SummaryWriter(log_dir=log_dir)
 
-    #loss = torch.nn.MSELoss()
-    loss = torch.nn.L1Loss()
+    l1 = nn.L1Loss()
+    mse = nn.MSELoss()
+
+    def calculate_loss(output, target):
+        loss = mse(output, target)
+        return loss
 
     for epoch in range(1, epochs + 1):
-        utils.train(model, loss, optimizer, epoch, train_loader, valid_loader, writer=writer, checkpoint_name='itn_best.pth', scheduler=None)
+        utils.train(model, calculate_loss, optimizer, epoch, train_loader, valid_loader, writer=writer, checkpoint_name='itn_best.pth', scheduler=scheduler)
     
     writer.close()
 

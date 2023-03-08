@@ -21,6 +21,9 @@ class AortaDataset(base_dataset.BaseDataset):
   # obtained empirically
   GLOBAL_PIXEL_MEAN = 0.1
 
+  GLOBAL_MIN = -200
+  GLOBAL_MAX = 1000
+
   in_channels = 1
   out_channels = 1
 
@@ -32,6 +35,12 @@ class AortaDataset(base_dataset.BaseDataset):
       A.ShiftScaleRotate(p=0.5, rotate_limit=15, scale_limit=0.15, shift_limit=0.15),
       A.GridDistortion(p=0.5),
     ])
+
+  def get_optimal_threshold(self, scan, mask, th_padding=0):
+    aorta_region = scan[mask > 0]
+    high = np.percentile(aorta_region, 100) + th_padding
+    low = np.percentile(aorta_region, 1) - th_padding
+    return low, high
 
   def get_item_np(self, idx, transform=None):
     current_slice_file = self.file_names[idx]
@@ -48,21 +57,23 @@ class AortaDataset(base_dataset.BaseDataset):
 
     scan = np.load(current_slice_file.replace('label/', 'input/'))
     mask = np.load(current_slice_file)
-    scan = scan.astype(np.float)
 
-    scan[scan < -1000] = -1000
-    scan[scan > 1000] = 1000
+    scan[scan < self.GLOBAL_MIN] = self.GLOBAL_MIN
+    scan[scan > self.GLOBAL_MAX] = self.GLOBAL_MAX
+
+    scan = scan.astype(np.float)
 
     if 'itn' in self.transforms:
       aorta_region = scan[mask > 0]
-      th_padding = 20
+      th_aug = 0.05
 
-      self.WINDOW_MAX = np.percentile(aorta_region, 99) + th_padding
-      self.WINDOW_MIN = np.percentile(aorta_region, 1) - th_padding
+      low, high = self.get_optimal_threshold(scan, mask)
+      self.WINDOW_MAX = high
+      self.WINDOW_MIN = low
 
-      if self.augment and self.mode == 'train':
-        self.WINDOW_MAX += np.random.randint(-th_padding * 2, th_padding * 2)
-        self.WINDOW_MIN += np.random.randint(-th_padding * 2, th_padding * 2)
+      if self.augment and self.mode == 'train' and th_aug > 0:
+        self.WINDOW_MAX += np.random.randint(-high * th_aug, high * th_aug)
+        self.WINDOW_MIN += np.random.randint(-high * th_aug, high * th_aug)
 
       # window input slice
       scan[scan > self.WINDOW_MAX] = self.WINDOW_MIN
@@ -71,9 +82,9 @@ class AortaDataset(base_dataset.BaseDataset):
       # plt.imshow(scan, cmap='gray')
       # plt.show()
       # normalize
-      scan = (scan - self.WINDOW_MIN) / (self.WINDOW_MAX - self.WINDOW_MIN)
+      scan = (scan - self.WINDOW_MIN) / (self.WINDOW_MAX - self.WINDOW_MIN + 1e-8)
     else:
-      scan = (scan + 1000) / 2000
+      scan = (scan - self.GLOBAL_MIN) / (self.GLOBAL_MAX - self.GLOBAL_MIN)
 
     if transform is not None:
       transformed = transform(image=scan, mask=mask)

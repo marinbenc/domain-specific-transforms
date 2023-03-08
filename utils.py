@@ -119,6 +119,13 @@ def save_checkpoint(name, log_dir, model, epoch, optimizer, loss):
         'loss': loss
     }, file_name)
 
+def to_device(data, device):
+  if isinstance(data, (list, tuple)):
+    if len(data) == 1:
+      return data[0].to(device, non_blocking=True)
+    return [to_device(x, device) for x in data]
+  return data.to(device, non_blocking=True)
+    
 def train(model, loss_fn, optimizer, epoch, train_loader, val_loader, writer, checkpoint_name, scheduler=None):
     global best_loss
     if epoch == 0:
@@ -126,15 +133,19 @@ def train(model, loss_fn, optimizer, epoch, train_loader, val_loader, writer, ch
     
     model.train()
     loss_total = 0
-    for batch_idx, (data, target) in enumerate(train_loader):
-        data, target = data.to(device), target.to(device)
-        #show_torch(imgs=[data[0] + 0.5, target[0]])
-        optimizer.zero_grad()
-        output = model(data)
-        loss = loss_fn(output, target)
-        loss.backward()
-        optimizer.step()
-        loss_total += loss.item()
+    for batch_idx, batch in enumerate(train_loader):
+      data = batch[0]
+      target = batch[1:]
+      data = to_device(data, device)
+      target = to_device(target, device)
+
+      #show_torch(imgs=[data[0] + 0.5, target[0]])
+      optimizer.zero_grad()
+      output = model(data)
+      loss = loss_fn(output, target)
+      loss.backward()
+      optimizer.step()
+      loss_total += loss.item()
         
     loss_total /= len(train_loader)
     writer.add_scalar('Loss/train', loss_total, epoch)
@@ -145,8 +156,11 @@ def train(model, loss_fn, optimizer, epoch, train_loader, val_loader, writer, ch
       loss_total = 0
       model.eval()
       with torch.no_grad():
-        for (data, target) in val_loader:
-          data, target = data.to(device), target.to(device)
+        for batch in val_loader:
+          data = batch[0]
+          target = batch[1:]
+          data = to_device(data, device)
+          target = to_device(target, device)
           output = model(data)
           loss = loss_fn(output, target)
           loss_total += loss.item()
@@ -164,8 +178,8 @@ def train(model, loss_fn, optimizer, epoch, train_loader, val_loader, writer, ch
         best_loss = loss_total
         save_checkpoint(checkpoint_name, writer.log_dir, model, epoch, optimizer, loss_total)
 
-    #if (epoch - 1) % 25 == 0:
-    #  show_torch(imgs=[data[0], output[0], target[0]])
+    # if (epoch - 1) % 10 == 0:
+    #   show_torch(imgs=[data[0][0], output[0][0], target[0][0]])
 
 def _thresh(img):
   img[img > 0.5] = 1

@@ -38,8 +38,8 @@ class ITNDataset(Dataset):
       A.HorizontalFlip(p=0.5),
       A.GridDistortion(p=0.5),
       A.ShiftScaleRotate(p=0.5, rotate_limit=15, scale_limit=0.15, shift_limit=0.15),
-      A.GaussianBlur(p=0.5),
-      A.RandomBrightnessContrast(p=0.5, brightness_limit=0.1, contrast_limit=0.1, brightness_by_max=False),
+      #A.GaussianBlur(p=0.5),
+      #A.RandomBrightnessContrast(p=0.5, brightness_limit=0.05, contrast_limit=0.05, brightness_by_max=False),
       #A.RandomGamma(p=1, gamma_limit=0.5),
       ToTensorV2()
     ], additional_targets={'image_itn': 'image'})
@@ -50,6 +50,8 @@ class ITNDataset(Dataset):
   def __getitem__(self, idx):
     input, label = self.wrapped_dataset.get_item_np(idx)
     input_itn, _ = self.wrapped_dataset_itn.get_item_np(idx)
+    th_low, th_high = self.wrapped_dataset_itn.get_optimal_threshold(input, label)
+    th = torch.tensor([th_low, th_high], dtype=torch.float)
 
     augmentation = self.get_augmentation()
     transformed = augmentation(image=input, image_itn=input_itn, mask=label)
@@ -59,5 +61,5 @@ class ITNDataset(Dataset):
 
     #utils.show_torch(imgs=[input, input_itn, label])
 
-    return input, input_itn
+    return input, th
     

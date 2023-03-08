@@ -24,6 +24,8 @@ class TransformedSegmentation(nn.Module):
 
       # Spatial transformer localization-network
       self.itn = itn
+      self.itn.output_img = True
+      self.itn.output_theta = False
       self.stn = stn
       self.seg = seg
       self._iters = 0
@@ -33,7 +35,7 @@ class TransformedSegmentation(nn.Module):
     # transform image    
     if self.itn is not None:
       #plt.imshow(x[0].squeeze().detach().cpu().numpy()); plt.show()
-      x = self.itn(x)
+      x_t, th = self.itn(x)
       #plt.imshow(x[0].squeeze().detach().cpu().numpy()); plt.show()
       # normalize x
       #x = (x - x.min()) / (x.max() - x.min())
@@ -51,9 +53,9 @@ class TransformedSegmentation(nn.Module):
       grid = F.affine_grid(theta_inv, y_t.size())
       y = F.grid_sample(y_t, grid)
     else:
-      y = self.seg(x)
+      y = self.seg(x_t)
 
-    #utils.show_torch(imgs=[x[0] + 0.5, x_t[0] + 0.5, y_t[0], y[0]])
+    #utils.show_torch(imgs=[x[0], x_t[0], y[0]])
 
     # self._iters += 1
 
