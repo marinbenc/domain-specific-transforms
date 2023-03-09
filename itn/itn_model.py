@@ -11,48 +11,56 @@ import utils
 
 # TODO: Rename to threshold model or something like that
 class ITN(nn.Module):
+  #TODO: img_th should be only threshold, image_stn only stn, img_th_stn both
   """
   Image Transformer Network
 
   Attributes:
     loc_net: the localization network
-    output_theta: if `True`, the model output contain theta in the form of (N, 2) tensor 
-                  where N is the batch size and the 2 values are the low and high thresholds
-    output_img: if `True`, the model output contain the thresholded image. 
-                If both `output_theta` and `output_img` are `True`, the output will be (img, theta).
-    segmentation_mode: if `True`, the model will use a sigmoid activation function on the thresholded image.
+  
+  Returns: 
+    A dictionary with keys:
+      - 'img_th': thresholded image
+      - 'threshold': the model output will be the threshold with shape (batch_size, 2)
+      - 'img_stn: STN-transformed image
+      - 'theta': the model output will be the 3 * 2 affine matrix with shape (batch_size, 3, 2)
+      - 'seg': the model output will be the segmentation mask
   """
-  def __init__(self, loc_net, output_theta=False, output_img=True, segmentation_mode=False):
+  def __init__(self, loc_net):
       super(ITN, self).__init__()
-
-      self.output_theta = output_theta
-      self.output_img = output_img
-      self.segmentation_mode = segmentation_mode
 
       # Spatial transformer localization-network
       self.loc_net = loc_net
       self.avg_pool = nn.AdaptiveAvgPool2d(output_size=(4, 4))
 
-      # Regressor for the 3 * 2 affine matrix
-      self.loc_head = nn.Sequential(
+      # Regressor for the threshold
+      self.thresh_head = nn.Sequential(
         nn.Linear(512 * 4 * 4, 128),
         nn.ReLU(True),
         nn.Linear(128, 2)
       )
 
+      # Initialize to untresholded image
+      self.thresh_head[-1].weight.data.zero_()
+      self.thresh_head[-1].bias.data.copy_(torch.tensor([0, 1], dtype=torch.float))
+
+      # Regressor for the 3 * 2 affine matrix
+      self.stn_head = nn.Sequential(
+        nn.Linear(512 * 4 * 4, 128),
+        nn.ReLU(True),
+        nn.Linear(128, 3 * 2)
+      )
+
       # Initialize the weights/bias with identity transformation
-      self.loc_head[-1].weight.data.zero_()
-      self.loc_head[-1].bias.data.copy_(torch.tensor([0, 1], dtype=torch.float))
+      self.stn_head[-1].weight.data.zero_()
+      self.stn_head[-1].bias.data.copy_(torch.tensor([1, 0, 0, 0, 1, 0], dtype=torch.float))
 
-      # TODO: Experiment with using fully conv network
-      # # Regressor for the 3 * 2 affine matrix
-      # self.loc_head = nn.Sequential(
-      #   nn.Conv2d(512, 1, (7, 6))
-      # )
-
-      # # Initialize the weights/bias with identity transformation
-      # self.loc_head[-1].bias.data.zero_()
-      # nn.init.dirac_(self.loc_head[-1].weight)
+  def stn(self, x, xs):
+    theta = self.stn_head(xs)
+    theta = theta.view(-1, 2, 3)
+    grid = F.affine_grid(theta, x.size(), align_corners=False)
+    x = F.grid_sample(x, grid)
+    return x, theta
 
   def smooth_threshold(self, x, low, high):
     slope = 50
@@ -61,25 +69,47 @@ class ITN(nn.Module):
     return th_low + th_high - 1
 
   def forward(self, x):
-    assert self.output_img or self.output_theta, "Must output at least one of image or theta"
-    
-    x_original = x.detach().clone()
     xs = self.loc_net(x)[-1]
-    
     xs = self.avg_pool(xs)
     xs = xs.view(-1, 512 * 4 * 4)
-    theta = self.loc_head(xs)
-      
-    if self.output_img:
-      th_low = theta[:, 0].view(-1, 1, 1, 1)
-      th_high = theta[:, 1].view(-1, 1, 1, 1)
-      if self.segmentation_mode:
-        x = self.smooth_threshold(x, th_low, th_high)
-      else:
-        x = x * self.smooth_threshold(x, th_low, th_high)
-    if self.output_img and self.output_theta:
-      return x, theta
-    elif self.output_img:
-      return x
-    elif self.output_theta:
-      return theta
+
+    threshold = self.thresh_head(xs)
+
+    # Threshold the image
+    th_low = threshold[:, 0].view(-1, 1, 1, 1)
+    th_high = threshold[:, 1].view(-1, 1, 1, 1)
+    mask = self.smooth_threshold(x, th_low, th_high)
+    x_th = x * mask
+
+    # Spatial transformer
+
+    # TODO: Try this 
+    #xs = self.loc_net(x_th)[-1]
+    #xs = self.avg_pool(xs)
+    #xs = xs.view(-1, 512 * 4 * 4)
+
+    theta = self.stn_head(xs)
+    theta = theta.view(-1, 2, 3)
+
+    grid = F.affine_grid(theta, x.size(), align_corners=False)
+    x = F.grid_sample(x, grid)
+    mask = F.grid_sample(mask, grid)
+    x_th_stn = F.grid_sample(x_th, grid)
+
+    row = torch.tensor([0, 0, 1], dtype=theta.dtype, device=theta.device).expand(theta.shape[0], 1, 3)
+    theta_sq = torch.cat([theta, row], dim=1)
+    theta_inv = torch.inverse(theta_sq)[:, :2, :]
+    grid = F.affine_grid(theta_inv, x.size())
+    mask = F.grid_sample(mask, grid)
+
+
+    output = {
+      'img_th': x_th,
+      'threshold': threshold,
+      'img_stn': x,
+      'theta': theta,
+      'img_th_stn': x_th_stn,
+      'seg': mask
+    }
+
+    return output

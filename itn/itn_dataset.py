@@ -29,7 +29,8 @@ class ITNDataset(Dataset):
   """
   def __init__(self, wrapped_dataset_class, subset='', directory='train'):
     self.wrapped_dataset = wrapped_dataset_class(directory, subset=subset, augment=False, transforms=[])
-    self.wrapped_dataset_itn = wrapped_dataset_class(directory, subset=subset, augment=False, transforms=['itn'])
+    self.wrapped_dataset_itn = wrapped_dataset_class(directory, subset=subset, augment=False, transforms=['itn', 'stn'])
+    self.wrapped_dataset_stn = wrapped_dataset_class(directory, subset=subset, augment=False, transforms=['stn'])
     self.in_channels = self.wrapped_dataset.in_channels
     self.out_channels = self.wrapped_dataset.out_channels
 
@@ -42,7 +43,7 @@ class ITNDataset(Dataset):
       #A.RandomBrightnessContrast(p=0.5, brightness_limit=0.05, contrast_limit=0.05, brightness_by_max=False),
       #A.RandomGamma(p=1, gamma_limit=0.5),
       ToTensorV2()
-    ], additional_targets={'image_itn': 'image'})
+    ], additional_targets={'image_itn': 'image', 'image_stn': 'image'})
 
   def __len__(self):
     return len(self.wrapped_dataset)
@@ -50,16 +51,18 @@ class ITNDataset(Dataset):
   def __getitem__(self, idx):
     input, label = self.wrapped_dataset.get_item_np(idx)
     input_itn, _ = self.wrapped_dataset_itn.get_item_np(idx)
+    input_stn, _ = self.wrapped_dataset_stn.get_item_np(idx)
     th_low, th_high = self.wrapped_dataset_itn.get_optimal_threshold(input, label)
     th = torch.tensor([th_low, th_high], dtype=torch.float)
 
     augmentation = self.get_augmentation()
-    transformed = augmentation(image=input, image_itn=input_itn, mask=label)
+    transformed = augmentation(image=input, image_itn=input_itn, image_stn=input_stn, mask=label)
     input = transformed['image'].float()
     input_itn = transformed['image_itn'].float()
+    input_stn = transformed['image_stn'].float()
     label = transformed['mask']
 
     #utils.show_torch(imgs=[input, input_itn, label])
 
-    return input, th
+    return input, (input_stn, th)
     

@@ -76,8 +76,15 @@ def get_predictions(model, dataset):
 
       data, target = data.to(device), target.to(device)
       output = model(data.unsqueeze(0))
+      if type(output) == dict:
+        output = output['seg']
       output = F.interpolate(output, y_np.shape[-2:], mode='nearest')
       output = output.squeeze().detach().cpu().numpy()
+
+      kernel = np.ones((3,3),np.uint8)
+      output = cv.morphologyEx(output, cv.MORPH_OPEN, kernel)
+      output = cv.morphologyEx(output, cv.MORPH_CLOSE, kernel)
+
       output = utils._thresh(output)
       ys_pred.append(output)
 

@@ -11,8 +11,6 @@ import torch.optim as optim
 
 import matplotlib.pyplot as plt
 
-from torch.utils.tensorboard import SummaryWriter
-
 import argparse
 import datetime
 import numpy as np
@@ -74,19 +72,19 @@ def train_itn(batch_size, epochs, lr, dataset, subset, log_name):
     optimizer = optim.Adam(model.parameters(), lr=lr)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.1, patience=5, verbose=True, min_lr=1e-15, eps=1e-15)
 
-    writer = SummaryWriter(log_dir=log_dir)
-
     l1 = nn.L1Loss()
     mse = nn.MSELoss()
 
     def calculate_loss(output, target):
-        loss = mse(output, target)
-        return loss
+        target_img, target_thresh = target
+        output_img = output['img_stn']
+        output_thresh = output['threshold']
+        th_loss = mse(output_thresh, target_thresh)
+        img_loss = l1(output_img, target_img)
+        return th_loss + img_loss
 
-    for epoch in range(1, epochs + 1):
-        utils.train(model, calculate_loss, optimizer, epoch, train_loader, valid_loader, writer=writer, checkpoint_name='itn_best.pth', scheduler=scheduler)
-    
-    writer.close()
+    trainer = utils.Trainer(model, optimizer, calculate_loss, train_loader, valid_loader, log_dir=f'runs/{args.log_name}/itn', checkpoint_name='itn_best.pth', scheduler=scheduler)
+    trainer.train(epochs)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(

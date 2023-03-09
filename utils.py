@@ -4,6 +4,7 @@ import os.path as p
 import json
 
 import torch
+from torch.utils.tensorboard import SummaryWriter
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -89,7 +90,10 @@ def crop_to_label(input, label, padding=32, bbox_aug=0):
   w = min(w + 2 * padding, label_th.shape[1] - x)
   h = min(h + 2 * padding, label_th.shape[0] - y)
 
-  input_cropped = input[y:y+h, x:x+w, :].copy()
+  if len(input.shape) == 2:
+    input_cropped = input[y:y+h, x:x+w].copy()
+  else:
+    input_cropped = input[y:y+h, x:x+w, :].copy()
   label_cropped = label[y:y+h, x:x+w]
 
   padding_left = max(0, padding - x)
@@ -119,67 +123,94 @@ def save_checkpoint(name, log_dir, model, epoch, optimizer, loss):
         'loss': loss
     }, file_name)
 
-def to_device(data, device):
-  if isinstance(data, (list, tuple)):
-    if len(data) == 1:
-      return data[0].to(device, non_blocking=True)
-    return [to_device(x, device) for x in data]
-  return data.to(device, non_blocking=True)
-    
-def train(model, loss_fn, optimizer, epoch, train_loader, val_loader, writer, checkpoint_name, scheduler=None):
-    global best_loss
+class Trainer:
+  def __init__(self, model, optimizer, loss_fn, train_loader, val_loader, log_dir, checkpoint_name, scheduler=None, device='cuda'):
+    self.model = model
+    self.optimizer = optimizer
+    self.loss_fn = loss_fn
+    self.train_loader = train_loader
+    self.val_loader = val_loader
+    self.device = device
+    self.log_dir = log_dir
+    self.checkpoint_name = checkpoint_name
+    self.scheduler = scheduler
+    self.device = device
+
+    self.writer = SummaryWriter(log_dir=self.log_dir)
+    self.best_loss = float('inf')
+
+  def _to_device(self, data):
+    if isinstance(data, (list, tuple)):
+      if len(data) == 1:
+        return self._to_device(data[0])
+      return [self._to_device(x) for x in data]
+    elif isinstance(data, dict):
+      return {k: self._to_device(v) for k, v in data.items()}
+    else:
+      return data.to(self.device, non_blocking=True)
+
+  def train(self, epochs):
+    for epoch in range(epochs):
+      self._train_epoch(epoch)
+
+  def _train_epoch(self, epoch):
     if epoch == 0:
-      best_loss = float('inf')
+      self.best_loss = float('inf')
     
-    model.train()
+    self.model.train()
     loss_total = 0
-    for batch_idx, batch in enumerate(train_loader):
-      data = batch[0]
-      target = batch[1:]
-      data = to_device(data, device)
-      target = to_device(target, device)
+    for batch_idx, batch in enumerate(self.train_loader):
+      input = self._to_device(self.get_input(batch))
+      target = self._to_device(self.get_target(batch))
 
       #show_torch(imgs=[data[0] + 0.5, target[0]])
-      optimizer.zero_grad()
-      output = model(data)
-      loss = loss_fn(output, target)
+      self.optimizer.zero_grad()
+      output = self.model(input)
+      loss = self.loss_fn(output, target)
       loss.backward()
-      optimizer.step()
+      self.optimizer.step()
       loss_total += loss.item()
         
-    loss_total /= len(train_loader)
-    writer.add_scalar('Loss/train', loss_total, epoch)
+    loss_total /= len(self.train_loader)
+    self.writer.add_scalar('Loss/train', loss_total, epoch)
 
     print(f'Train Epoch: {epoch}\tTrain Loss: {loss_total:.6f}', end='', flush=True)
 
-    if val_loader is not None:
+    if self.val_loader is not None:
       loss_total = 0
-      model.eval()
+      self.model.eval()
       with torch.no_grad():
-        for batch in val_loader:
-          data = batch[0]
-          target = batch[1:]
-          data = to_device(data, device)
-          target = to_device(target, device)
-          output = model(data)
-          loss = loss_fn(output, target)
+        for batch in self.val_loader:
+          input = self._to_device(self.get_input(batch))
+          target = self._to_device(self.get_target(batch))
+          output = self.model(input)
+          loss = self.loss_fn(output, target)
           loss_total += loss.item()
-      loss_total /= len(val_loader)
-      writer.add_scalar('Loss/valid', loss_total, epoch)
+      loss_total /= len(self.val_loader)
+      self.writer.add_scalar('Loss/valid', loss_total, epoch)
       print(f'\tValid Loss: {loss_total:.6f}', end='', flush=True)
     
     print()
 
-    if scheduler is not None:
-      scheduler.step(loss_total)
+    if self.scheduler is not None:
+      self.scheduler.step(loss_total)
 
-    if loss_total < best_loss and True:
+    if loss_total < self.best_loss and True:
         print('Saving new best model...')
-        best_loss = loss_total
-        save_checkpoint(checkpoint_name, writer.log_dir, model, epoch, optimizer, loss_total)
+        self.best_loss = loss_total
+        save_checkpoint(self.checkpoint_name, self.writer.log_dir, self.model, epoch, self.optimizer, loss_total)
 
-    # if (epoch - 1) % 10 == 0:
-    #   show_torch(imgs=[data[0][0], output[0][0], target[0][0]])
+    if (epoch - 1) % 10 == 0:
+      print(input.shape, output['img_th'].shape, target[0].shape)
+      show_torch(imgs=[input[0][0], output['img_stn'][0][0], target[0][0]])
+
+  def get_input(self, batch):
+    """Convert data loader output to input of the model"""
+    return batch[0]
+
+  def get_target(self, batch):
+    """Convert data loader output to target of the model"""
+    return batch[1:]
 
 def _thresh(img):
   img[img > 0.5] = 1
