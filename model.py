@@ -35,7 +35,7 @@ class TransformedSegmentation(nn.Module):
     # transform image    
     if self.itn is not None:
       #plt.imshow(x[0].squeeze().detach().cpu().numpy()); plt.show()
-      x_t, th = self.itn(x)
+      x_t = self.itn(x)
       #plt.imshow(x[0].squeeze().detach().cpu().numpy()); plt.show()
       # normalize x
       #x = (x - x.min()) / (x.max() - x.min())

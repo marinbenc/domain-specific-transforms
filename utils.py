@@ -208,8 +208,8 @@ def iou(y_pred, y_true):
   return intersection.sum() / float(union.sum())
 
 def precision(y_pred, y_true):
-  y_pred = _thresh(y_pred).astype(np.int)
-  y_true = _thresh(y_true).astype(np.int)
+  #y_pred = _thresh(y_pred).astype(np.int)
+  #y_true = _thresh(y_true).astype(np.int)
 
   if y_true.sum() <= 5:
     # when the example is nearly empty, avoid division by 0

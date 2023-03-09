@@ -16,6 +16,7 @@ import seg.train_seg as seg
 import data.datasets as data
 import stn.stn_dataset as stn_dataset
 import stn.train_stn as stn
+import itn.train_itn as itn
 import fine_tune
 
 device = 'cuda'
@@ -80,7 +81,11 @@ def get_predictions(model, dataset):
       output = utils._thresh(output)
       ys_pred.append(output)
 
-      #utils.show_images_row(imgs=[x_np + 0.5, data.detach().cpu().numpy().transpose(1, 2, 0) + 0.5, y_np, target.squeeze().detach().cpu().numpy(), output])
+      viz_data = data.detach().cpu().numpy().transpose(1, 2, 0)
+      viz_target = target.squeeze().detach().cpu().numpy()
+
+      #utils.show_images_row(
+      #  imgs=[x_np + 0.5, viz_data, viz_target, output, viz_target - output],figsize=(20, 5))
 
   return xs, ys, ys_pred
 
@@ -90,7 +95,7 @@ def run_stn_predictions(model, dataset):
     for data, target in dataset:
       data, target = data.to(device), target.to(device)
       output = model(data.unsqueeze(0))
-      utils.show_torch([data + 0.5, output.squeeze() + 0.5, (data + 0.5) - (output.squeeze() + 0.5), target.squeeze() + 0.5])
+      #utils.show_torch([data + 0.5, output.squeeze() + 0.5, (data + 0.5) - (output.squeeze() + 0.5), target.squeeze() + 0.5])
 
 
 def calculate_metrics(ys_pred, ys, metrics):
@@ -155,6 +160,7 @@ def test(model_type, dataset, log_name, dataset_folder, subset, transforms, save
       model = itn.get_model(test_dataset)
       model.output_img = True
       model.output_theta = False
+      model.segmentation_mode = True
 
     checkpoint = get_checkpoint(model_type, log_name)
     model.load_state_dict(checkpoint['model'])

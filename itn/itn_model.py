@@ -27,6 +27,7 @@ class ITN(nn.Module):
 
       self.output_theta = output_theta
       self.output_img = output_img
+      self.segmentation_mode = segmentation_mode
 
       # Spatial transformer localization-network
       self.loc_net = loc_net
@@ -72,14 +73,13 @@ class ITN(nn.Module):
     if self.output_img:
       th_low = theta[:, 0].view(-1, 1, 1, 1)
       th_high = theta[:, 1].view(-1, 1, 1, 1)
-      x = x * self.smooth_threshold(x, th_low, th_high)
-
       if self.segmentation_mode:
-        x = torch.sigmoid(x)
-
-    if self.output_image and self.output_theta:
+        x = self.smooth_threshold(x, th_low, th_high)
+      else:
+        x = x * self.smooth_threshold(x, th_low, th_high)
+    if self.output_img and self.output_theta:
       return x, theta
-    elif self.output_image:
+    elif self.output_img:
       return x
     elif self.output_theta:
       return theta
