@@ -123,6 +123,7 @@ def save_checkpoint(name, log_dir, model, epoch, optimizer, loss):
         'loss': loss
     }, file_name)
 
+# TODO: Move to separate file
 class Trainer:
   def __init__(self, model, optimizer, loss_fn, train_loader, val_loader, log_dir, checkpoint_name, scheduler=None, device='cuda'):
     self.model = model
@@ -200,9 +201,8 @@ class Trainer:
         self.best_loss = loss_total
         save_checkpoint(self.checkpoint_name, self.writer.log_dir, self.model, epoch, self.optimizer, loss_total)
 
-    if (epoch - 1) % 10 == 0:
-      print(input.shape, output['img_th'].shape, target[0].shape)
-      show_torch(imgs=[input[0][0], output['img_stn'][0][0], target[0][0]])
+    #if (epoch - 1) % 10 == 0:
+    #  show_torch(imgs=[input[0][0], output['img_stn'][0][0], target[0][0]])
 
   def get_input(self, batch):
     """Convert data loader output to input of the model"""

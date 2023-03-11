@@ -2,6 +2,9 @@ import numpy as np
 import argparse
 import torch
 import cv2 as cv
+from scipy import ndimage
+
+import matplotlib.pyplot as plt
 
 import os
 import os.path as p
@@ -71,22 +74,61 @@ def get_predictions(model, dataset):
     for idx, (data, target) in enumerate(dataset):
       x_np, y_np = dataset.get_item_np(idx)
 
+      _, number_of_objects = ndimage.label(y_np)
+      if number_of_objects > 1:
+        continue
+
       xs.append(x_np)
       ys.append(y_np)
 
       data, target = data.to(device), target.to(device)
       output = model(data.unsqueeze(0))
-      if type(output) == dict:
-        output = output['seg']
-      output = F.interpolate(output, y_np.shape[-2:], mode='nearest')
-      output = output.squeeze().detach().cpu().numpy()
 
-      kernel = np.ones((3,3),np.uint8)
-      output = cv.morphologyEx(output, cv.MORPH_OPEN, kernel)
-      output = cv.morphologyEx(output, cv.MORPH_CLOSE, kernel)
+      if isinstance(output, dict):      
+        theta = output['theta_inv']
+        threshold = output['threshold']
+        #print(threshold)
+        output = output['img_stn']
+        output = output.squeeze().detach().cpu().numpy()
 
-      output = utils._thresh(output)
-      ys_pred.append(output)
+        #kernel = np.ones((3,3),np.uint8)
+        #output = cv.morphologyEx(output, cv.MORPH_OPEN, kernel)
+        #output = cv.morphologyEx(output, cv.MORPH_CLOSE, kernel)
+
+        padding = 8
+        bbox = [padding, padding, output.shape[1] - 2 * padding, output.shape[0] - 2 * padding]
+        #print(output.max(), output.min())
+        output[output < 0.25] = 0
+        output[output > 0.65] = 0
+        output_rgb = cv.cvtColor(output * 255,cv.COLOR_GRAY2RGB).astype(np.uint8)
+
+        #plt.imshow(x_np)
+        #plt.show()
+
+        #plt.imshow(output_rgb)
+        # plot bbox
+        #plt.gca().add_patch(plt.Rectangle((bbox[0], bbox[1]), bbox[2], bbox[3], fill=False, edgecolor='red', linewidth=2))
+        #plt.show()
+
+        mask = np.zeros(output_rgb.shape[:2],np.uint8)
+        bgdModel = np.zeros((1,65),np.float64)
+        fgdModel = np.zeros((1,65),np.float64)
+        cv.grabCut(output_rgb,mask,bbox,bgdModel,fgdModel,5,cv.GC_INIT_WITH_RECT)
+        mask2 = np.where((mask==2)|(mask==0),0,1)
+        mask2_t = torch.from_numpy(mask2).unsqueeze(0).to(device).float()
+        mask2_t = model.transform(mask2_t.unsqueeze(0), theta, target.unsqueeze(0).shape)
+        mask2 = mask2_t.squeeze().detach().cpu().numpy().astype(np.uint8)
+
+        # show mask2 compared to mask_gt
+
+        # plt.imshow(mask2)
+        # plt.show()
+
+        ys_pred.append(mask2)
+      else:
+        output = output.squeeze().detach().cpu().numpy()
+        output = utils._thresh(output)
+        ys_pred.append(output)
 
       viz_data = data.detach().cpu().numpy().transpose(1, 2, 0)
       viz_target = target.squeeze().detach().cpu().numpy()

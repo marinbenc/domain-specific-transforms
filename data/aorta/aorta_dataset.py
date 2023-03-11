@@ -94,8 +94,8 @@ class AortaDataset(base_dataset.BaseDataset):
 
     if 'stn' in self.transforms:
       # TODO: Make bbox_aug a command line argument
-      bbox_aug = 32 if self.augment and self.mode == 'train' else 0
-      scan, mask = utils.crop_to_label(scan, mask, bbox_aug=bbox_aug)
+      bbox_aug = 2 if self.augment and self.mode == 'train' else 0
+      scan, mask = utils.crop_to_label(scan, mask, bbox_aug=bbox_aug, padding=4)
 
     return scan, mask
 

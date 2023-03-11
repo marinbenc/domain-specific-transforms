@@ -55,11 +55,15 @@ class ITN(nn.Module):
       self.stn_head[-1].weight.data.zero_()
       self.stn_head[-1].bias.data.copy_(torch.tensor([1, 0, 0, 0, 1, 0], dtype=torch.float))
 
+  def transform(self, x, theta, size):
+    grid = F.affine_grid(theta, size, align_corners=False)
+    x = F.grid_sample(x, grid)
+    return x
+
   def stn(self, x, xs):
     theta = self.stn_head(xs)
     theta = theta.view(-1, 2, 3)
-    grid = F.affine_grid(theta, x.size(), align_corners=False)
-    x = F.grid_sample(x, grid)
+    x = self.transform(x, theta, x.size())
     return x, theta
 
   def smooth_threshold(self, x, low, high):
@@ -95,12 +99,15 @@ class ITN(nn.Module):
     x = F.grid_sample(x, grid)
     mask = F.grid_sample(mask, grid)
     x_th_stn = F.grid_sample(x_th, grid)
+    #print(theta)
+    #plt.imshow(x_th_stn[0, 0].detach().cpu().numpy())
+    #plt.show()
 
     row = torch.tensor([0, 0, 1], dtype=theta.dtype, device=theta.device).expand(theta.shape[0], 1, 3)
     theta_sq = torch.cat([theta, row], dim=1)
     theta_inv = torch.inverse(theta_sq)[:, :2, :]
     grid = F.affine_grid(theta_inv, x.size())
-    mask = F.grid_sample(mask, grid)
+    mask = self.transform(mask, theta_inv, x.size())
 
 
     output = {
@@ -108,6 +115,7 @@ class ITN(nn.Module):
       'threshold': threshold,
       'img_stn': x,
       'theta': theta,
+      'theta_inv': theta_inv,
       'img_th_stn': x_th_stn,
       'seg': mask
     }

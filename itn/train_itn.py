@@ -72,6 +72,7 @@ def train_itn(batch_size, epochs, lr, dataset, subset, log_name):
     optimizer = optim.Adam(model.parameters(), lr=lr)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.1, patience=5, verbose=True, min_lr=1e-15, eps=1e-15)
 
+    ssim = K.losses.SSIMLoss(3)
     l1 = nn.L1Loss()
     mse = nn.MSELoss()
 
@@ -81,7 +82,7 @@ def train_itn(batch_size, epochs, lr, dataset, subset, log_name):
         output_thresh = output['threshold']
         th_loss = mse(output_thresh, target_thresh)
         img_loss = l1(output_img, target_img)
-        return th_loss + img_loss
+        return 5 * th_loss + img_loss
 
     trainer = utils.Trainer(model, optimizer, calculate_loss, train_loader, valid_loader, log_dir=f'runs/{args.log_name}/itn', checkpoint_name='itn_best.pth', scheduler=scheduler)
     trainer.train(epochs)
