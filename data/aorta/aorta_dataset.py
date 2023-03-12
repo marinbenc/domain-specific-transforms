@@ -31,6 +31,8 @@ class AortaDataset(base_dataset.BaseDataset):
   width = 256
   height = 256
 
+  padding = 4
+
   def get_train_transforms(self):
     return A.Compose([
       A.ShiftScaleRotate(p=0.5, rotate_limit=15, scale_limit=0.15, shift_limit=0.15),
@@ -95,7 +97,7 @@ class AortaDataset(base_dataset.BaseDataset):
     if 'stn' in self.transforms:
       # TODO: Make bbox_aug a command line argument
       bbox_aug = 2 if self.augment and self.mode == 'train' else 0
-      scan, mask = utils.crop_to_label(scan, mask, bbox_aug=bbox_aug, padding=4)
+      scan, mask = utils.crop_to_label(scan, mask, bbox_aug=bbox_aug, padding=self.padding)
 
     return scan, mask
 

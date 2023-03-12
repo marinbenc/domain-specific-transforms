@@ -21,48 +21,13 @@ import stn.stn_dataset as stn_dataset
 import stn.train_stn as stn
 import itn.train_itn as itn
 import fine_tune
+import weak_annotation
 
 device = 'cuda'
 
 def get_checkpoint(model_type, log_name):
   checkpoint = p.join('runs', log_name, model_type, f'{model_type}_best.pth')  
   return torch.load(checkpoint)
-
-# def get_stn_to_seg_predictions(stn_model, seg_model, dataset):
-
-#   xs = []
-#   ys = []
-#   ys_pred = []
-
-#   stn_model.eval()
-#   seg_model.eval()
-#   with torch.no_grad():
-#     for idx, (data, target) in enumerate(dataset):
-#       x_np, y_np = dataset.get_item_np(idx)
-      
-#       data, target = data.to(device), target.to(device)
-#       stn_output = stn_model(data.unsqueeze(0))
-#       seg_output = seg_model(stn_output)
-#       seg_output = F.interpolate(seg_output, data.shape[-2:], mode='nearest')
-
-#       utils.show_torch([data + 0.5, stn_output.squeeze() + 0.5, seg_output[0], target.squeeze() + 0.5])
-
-#       seg_output = seg_output.squeeze().detach().cpu().numpy()
-#       seg_output = utils._thresh(seg_output)
-
-#       # TODO: Reverse transform
-
-#       # TODO: Scrap this, use model, load stn checkpoint for stn and seg checkpoint for seg, don't load fine tune checkpoint.
-#       !!
-#       utils.show_images_row([seg_output, y_np])
-
-#       xs.append(x_np)
-#       ys.append(y_np)
-#       ys_pred.append(seg_output)
-
-#   return xs, ys, ys_pred
-
-      
 
 def get_predictions(model, dataset):
   xs = []
@@ -84,47 +49,14 @@ def get_predictions(model, dataset):
       data, target = data.to(device), target.to(device)
       output = model(data.unsqueeze(0))
 
-      if isinstance(output, dict):      
-        theta = output['theta_inv']
+      if isinstance(model, itn.itn_model.ITN):
+        theta = output['theta']
+        theta_inv = output['theta_inv']
         threshold = output['threshold']
-        #print(threshold)
-        output = output['img_stn']
-        output = output.squeeze().detach().cpu().numpy()
-
-        #kernel = np.ones((3,3),np.uint8)
-        #output = cv.morphologyEx(output, cv.MORPH_OPEN, kernel)
-        #output = cv.morphologyEx(output, cv.MORPH_CLOSE, kernel)
-
-        padding = 8
-        bbox = [padding, padding, output.shape[1] - 2 * padding, output.shape[0] - 2 * padding]
-        #print(output.max(), output.min())
-        output[output < 0.25] = 0
-        output[output > 0.65] = 0
-        output_rgb = cv.cvtColor(output * 255,cv.COLOR_GRAY2RGB).astype(np.uint8)
-
-        #plt.imshow(x_np)
-        #plt.show()
-
-        #plt.imshow(output_rgb)
-        # plot bbox
-        #plt.gca().add_patch(plt.Rectangle((bbox[0], bbox[1]), bbox[2], bbox[3], fill=False, edgecolor='red', linewidth=2))
-        #plt.show()
-
-        mask = np.zeros(output_rgb.shape[:2],np.uint8)
-        bgdModel = np.zeros((1,65),np.float64)
-        fgdModel = np.zeros((1,65),np.float64)
-        cv.grabCut(output_rgb,mask,bbox,bgdModel,fgdModel,5,cv.GC_INIT_WITH_RECT)
-        mask2 = np.where((mask==2)|(mask==0),0,1)
-        mask2_t = torch.from_numpy(mask2).unsqueeze(0).to(device).float()
-        mask2_t = model.transform(mask2_t.unsqueeze(0), theta, target.unsqueeze(0).shape)
-        mask2 = mask2_t.squeeze().detach().cpu().numpy().astype(np.uint8)
-
-        # show mask2 compared to mask_gt
-
-        # plt.imshow(mask2)
-        # plt.show()
-
-        ys_pred.append(mask2)
+        image = output['img_th_stn']
+        image = image.squeeze().detach().cpu().numpy()
+        weak_mask = weak_annotation.grab_cut_stn_output(image, theta, theta_inv, padding=dataset.padding)
+        ys_pred.append(weak_mask)
       else:
         output = output.squeeze().detach().cpu().numpy()
         output = utils._thresh(output)
