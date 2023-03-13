@@ -50,13 +50,8 @@ def get_predictions(model, dataset):
       output = model(data.unsqueeze(0))
 
       if isinstance(model, itn.itn_model.ITN):
-        theta = output['theta']
-        theta_inv = output['theta_inv']
-        threshold = output['threshold']
-        image = output['img_th_stn']
-        image = image.squeeze().detach().cpu().numpy()
-        weak_mask = weak_annotation.grab_cut_stn_output(image, theta, theta_inv, padding=dataset.padding)
-        ys_pred.append(weak_mask)
+        segmentation = output['seg'].squeeze().detach().cpu().numpy()
+        ys_pred.append(segmentation)
       else:
         output = output.squeeze().detach().cpu().numpy()
         output = utils._thresh(output)
@@ -139,9 +134,7 @@ def test(model_type, dataset, log_name, dataset_folder, subset, transforms, save
       model = fine_tune.get_model(test_dataset, log_name)
     elif model_type == 'itn':
       model = itn.get_model(test_dataset)
-      model.output_img = True
-      model.output_theta = False
-      model.segmentation_mode = True
+      model.segmentation_model = weak_annotation.GrabCutSegmentationModel(padding=test_dataset.padding)
 
     checkpoint = get_checkpoint(model_type, log_name)
     model.load_state_dict(checkpoint['model'])

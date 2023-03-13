@@ -1,3 +1,5 @@
+# STN module is based on https://pytorch.org/tutorials/intermediate/spatial_transformer_tutorial.html
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -5,29 +7,50 @@ import torch.nn.functional as F
 import numpy as np
 import matplotlib.pyplot as plt
 
-import segmentation_models_pytorch as smp
-
 import utils
 
 # TODO: Rename to threshold model or something like that
 class ITN(nn.Module):
-  #TODO: img_th should be only threshold, image_stn only stn, img_th_stn both
   """
   Image Transformer Network
 
   Attributes:
     loc_net: the localization network
-  
+
+    stn_transform: if `True`, the model will use STN. Useful for pre-training the thresholding.
+      Note: if `stn_transform` is `False`, `theta`, `img_stn` and `img_th_stn` will be `None` 
+      in the output dictionary.
+    
+    segmentation_model: the segmentation model or None if no segmentation is needed. If `None`,
+      `seg` will be `None` in the output dictionary. 
+      
+      The model must be a PyTorch model with a forward method that takes an input dictionary 
+      with keys:
+        - 'img_th_stn': STN-transformed image (with thresholding)
+        - 'theta_inv': the inverse of the 3 * 2 affine matrix output by the STN with 
+                       shape (batch_size, 3, 2)
+      and returns a segmentation mask with shape (batch_size, 1, H, W). The segmentation mask 
+      must be in the original image space (i.e. not transformed by the STN).
+
+      Built in segmentation models:
+        - GrabCutSegmentationModel in weak_annotation.py
+        - TODO
+
   Returns: 
     A dictionary with keys:
       - 'img_th': thresholded image
-      - 'threshold': the model output will be the threshold with shape (batch_size, 2)
-      - 'img_stn: STN-transformed image
-      - 'theta': the model output will be the 3 * 2 affine matrix with shape (batch_size, 3, 2)
-      - 'seg': the model output will be the segmentation mask
+      - 'threshold': the threshold with shape (batch_size, 2)
+      - 'img_stn: STN-transformed image (without thresholding)
+      - 'theta': the 3 * 2 affine matrix output by the STN with shape (batch_size, 3, 2)
+      - 'img_th_stn': STN-transformed image (with thresholding)
+      - 'seg': segmentation mask obtained with GrabCut
   """
-  def __init__(self, loc_net):
+  def __init__(self, loc_net, threshold=True, stn_transform=True, segmentation_model=None):
       super(ITN, self).__init__()
+
+      self.threshold = threshold
+      self.stn_transform = stn_transform
+      self.segmentation_model = segmentation_model
 
       # Spatial transformer localization-network
       self.loc_net = loc_net
@@ -60,12 +83,6 @@ class ITN(nn.Module):
     x = F.grid_sample(x, grid)
     return x
 
-  def stn(self, x, xs):
-    theta = self.stn_head(xs)
-    theta = theta.view(-1, 2, 3)
-    x = self.transform(x, theta, x.size())
-    return x, theta
-
   def smooth_threshold(self, x, low, high):
     slope = 50
     th_low = 1 / (1 + torch.exp(slope * (low - x)))
@@ -77,28 +94,31 @@ class ITN(nn.Module):
     xs = self.avg_pool(xs)
     xs = xs.view(-1, 512 * 4 * 4)
 
-    threshold = self.thresh_head(xs)
-
     # Threshold the image
-    th_low = threshold[:, 0].view(-1, 1, 1, 1)
-    th_high = threshold[:, 1].view(-1, 1, 1, 1)
-    mask = self.smooth_threshold(x, th_low, th_high)
-    x_th = x * mask
-
+    if self.threshold:
+      threshold = self.thresh_head(xs)
+      th_low = threshold[:, 0].view(-1, 1, 1, 1)
+      th_high = threshold[:, 1].view(-1, 1, 1, 1)
+      mask = self.smooth_threshold(x, th_low, th_high)
+      x_th = x * mask
+    else:
+      x_th = None
+      threshold = None
+    
     # Spatial transformer
 
-    # TODO: Try this 
-    #xs = self.loc_net(x_th)[-1]
-    #xs = self.avg_pool(xs)
-    #xs = xs.view(-1, 512 * 4 * 4)
+    if self.stn_transform:
+      theta = self.stn_head(xs)
+      theta = theta.view(-1, 2, 3)
 
-    theta = self.stn_head(xs)
-    theta = theta.view(-1, 2, 3)
-
-    grid = F.affine_grid(theta, x.size(), align_corners=False)
-    x = F.grid_sample(x, grid)
-    mask = F.grid_sample(mask, grid)
-    x_th_stn = F.grid_sample(x_th, grid)
+      grid = F.affine_grid(theta, x.size(), align_corners=False)
+      x = F.grid_sample(x, grid)
+      mask = F.grid_sample(mask, grid)
+      if x_th is not None:
+        x_th_stn = F.grid_sample(x_th, grid)
+      else:
+        x_th_stn = None
+    
     #print(theta)
     #plt.imshow(x_th_stn[0, 0].detach().cpu().numpy())
     #plt.show()
@@ -109,6 +129,10 @@ class ITN(nn.Module):
     grid = F.affine_grid(theta_inv, x.size())
     mask = self.transform(mask, theta_inv, x.size())
 
+    if self.segmentation_model is not None:
+      seg = self.segmentation_model({'img_th_stn': x_th_stn, 'theta_inv': theta_inv})
+    else:
+      seg = None
 
     output = {
       'img_th': x_th,
@@ -117,7 +141,7 @@ class ITN(nn.Module):
       'theta': theta,
       'theta_inv': theta_inv,
       'img_th_stn': x_th_stn,
-      'seg': mask
+      'seg': seg,
     }
 
     return output
