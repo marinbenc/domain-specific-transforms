@@ -15,19 +15,15 @@ import torch.nn.functional as F
 import pandas as pd
 
 import utils
-import seg.train_seg as seg
 import data.datasets as data
-import stn.stn_dataset as stn_dataset
-import stn.train_stn as stn
-import itn.train_itn as itn
-import fine_tune
-import weak_annotation
+import pre_cut
 
 device = 'cuda'
 
 def get_checkpoint(model_type, log_name):
-  checkpoint = p.join('runs', log_name, model_type, f'{model_type}_best.pth')  
-  return torch.load(checkpoint)
+  checkpoint = p.join('runs', log_name, model_type, f'{model_type}_best.pth')
+  checkpoint = torch.load(checkpoint, map_location=device)
+  return checkpoint
 
 def get_predictions(model, dataset):
   xs = []
@@ -49,7 +45,7 @@ def get_predictions(model, dataset):
       data, target = data.to(device), target.to(device)
       output = model(data.unsqueeze(0))
 
-      if isinstance(model, itn.itn_model.ITN):
+      if isinstance(model, pre_cut.PreCut):
         segmentation = output['seg'].squeeze().detach().cpu().numpy()
         ys_pred.append(segmentation)
       else:
@@ -57,8 +53,8 @@ def get_predictions(model, dataset):
         output = utils._thresh(output)
         ys_pred.append(output)
 
-      viz_data = data.detach().cpu().numpy().transpose(1, 2, 0)
-      viz_target = target.squeeze().detach().cpu().numpy()
+      #viz_data = data.detach().cpu().numpy().transpose(1, 2, 0)
+      #viz_target = target.squeeze().detach().cpu().numpy()
 
       #utils.show_images_row(
       #  imgs=[x_np + 0.5, viz_data, viz_target, output, viz_target - output],figsize=(20, 5))
@@ -105,39 +101,15 @@ def test(model_type, dataset, log_name, dataset_folder, subset, transforms, save
   elif dataset_folder == 'all':
     test_dataset = whole_dataset
 
-  if model_type == 'stn':
-    model = stn.get_model(test_dataset)
-    checkpoint = get_checkpoint(model_type, log_name)
-    model.load_state_dict(checkpoint['model'])
-    test_dataset = stn_dataset.STNDataset(test_dataset)
-    run_stn_predictions(model, test_dataset)
-    exit()
+  if model_type == 'unet':
+    model = pre_cut.get_unet(test_dataset, device)
+  elif model_type == 'precut':
+    model = pre_cut.get_model(segmentation_method='grabcut', dataset=test_dataset)
+  elif model_type == 'precut-unet':
+    model = pre_cut.get_model(segmentation_method='unet', dataset=test_dataset)
 
-  if model_type == 'stn-to-seg':
-    model = fine_tune.get_model(test_dataset, log_name)
-    stn_checkpoint = get_checkpoint('stn', log_name)
-    seg_checkpoint = get_checkpoint('seg', log_name)
-    model.itn = None
-    model.stn.load_state_dict(stn_checkpoint['model'])
-    model.seg.load_state_dict(seg_checkpoint['model'])
-  if model_type == 'itn-to-seg':
-    model = fine_tune.get_model(test_dataset, log_name)
-    itn_checkpoint = get_checkpoint('itn', log_name)
-    seg_checkpoint = get_checkpoint('seg', log_name)
-    model.itn.load_state_dict(itn_checkpoint['model'])
-    model.stn = None
-    model.seg.load_state_dict(seg_checkpoint['model'])
-  else:
-    if model_type == 'seg':
-      model = seg.get_model(test_dataset)
-    elif model_type == 'fine':
-      model = fine_tune.get_model(test_dataset, log_name)
-    elif model_type == 'itn':
-      model = itn.get_model(test_dataset)
-      model.segmentation_model = weak_annotation.GrabCutSegmentationModel(padding=test_dataset.padding)
-
-    checkpoint = get_checkpoint(model_type, log_name)
-    model.load_state_dict(checkpoint['model'])
+  checkpoint = get_checkpoint(model_type, log_name)
+  model.load_state_dict(checkpoint['model'])
 
   xs, ys, ys_pred = get_predictions(model, test_dataset)
 
@@ -162,7 +134,7 @@ if __name__ == '__main__':
         description='Test a trained model'
     )
     parser.add_argument(
-        '--model-type', type=str, choices=['seg', 'stn', 'itn', 'fine', 'stn-to-seg', 'itn-to-seg'], required=True, help='type of model to be tested',
+        '--model-type', type=str, choices=['precut', 'precut_unet', 'unet'], required=True, help='type of model to be tested',
     )
     parser.add_argument(
         '--dataset', type=str, choices=data.dataset_choices, default='lesion', help='which dataset to use'

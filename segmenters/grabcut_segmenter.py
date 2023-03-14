@@ -8,7 +8,7 @@ import torch.nn.functional as F
 
 import utils
 
-class GrabCutSegmentationModel(nn.Module):
+class GrabCutSegmenter(nn.Module):
   """
   GrabCut Segmentation Model
 
@@ -27,7 +27,7 @@ class GrabCutSegmentationModel(nn.Module):
       The output is a segmentation mask with shape (batch_size, 1, H, W), calculated with GrabCut.
   """
   def __init__(self, padding):
-    super(GrabCutSegmentationModel, self).__init__()
+    super(GrabCutSegmenter, self).__init__()
     self.padding = padding
 
   def forward(self, x):
@@ -46,9 +46,9 @@ class GrabCutSegmentationModel(nn.Module):
         input.shape[0] - self.padding // 2 * scale_y]
 
       #print(bbox)
-      #plt.imshow(input)
-      #plt.gca().add_patch(plt.Rectangle((bbox[0], bbox[1]), bbox[2], bbox[3], fill=False, edgecolor='red', linewidth=2))
-      #plt.show()
+      # plt.imshow(input)
+      # plt.gca().add_patch(plt.Rectangle((bbox[0], bbox[1]), bbox[2], bbox[3], fill=False, edgecolor='red', linewidth=2))
+      # plt.show()
 
       mask = np.zeros(input.shape[:2],np.uint8)
       # TODO: Check influence of circle
