@@ -55,28 +55,38 @@ def main(dataset_folder):
       
       case_name = image_file.name.split('/')[-1].split('.')[0]
 
-      slices = image.shape[-1] if len(image.shape) == 3 else image.shape[-2]
+      slices = image.shape[-1] if len(image.shape) == 3 else image.shape[1]
       for slice_idx in range(slices):
         if len(image.shape) == 4:
-          # 4D images (W, H, D, C)
-          input_slice = image[..., slice_idx, :]
-          label_slice = label[..., slice_idx]
+          # 4D images (C, D, H, W)
+          if 'prostate' in str(dataset_folder):
+            # image is (C, D, H, W)
+            input_slice = image[:, slice_idx, ...]
+            # change to (H, W, C)
+            input_slice = np.transpose(input_slice, (1, 2, 0))
+            label_slice = label[slice_idx, ...]
+            if input_slice.shape[0] != 256 or input_slice.shape[1] != 256:
+              input_slice = cv.resize(input_slice, (256, 256))
+              label_slice = cv.resize(label_slice, (256, 256), interpolation=cv.INTER_NEAREST)
+          else:
+            input_slice = image[..., slice_idx, :]
+            label_slice = label[..., slice_idx]
         elif len(image.shape) == 3:
           # 3D images (W, H, D)
-          if 'heart' in str(dataset_folder):
-            input_slice = image[:, slice_idx, :]
-            # crop height to width
-            label_slice = label[:, slice_idx, :]
-            label_slice = label[:, slice_idx, :]
-            # crop height to width
-            label_slice = label_slice[:, input_slice.shape[1] // 2 - input_slice.shape[0] // 2:input_slice.shape[1] // 2 + input_slice.shape[0] // 2]
-            input_slice = input_slice[:, input_slice.shape[1] // 2 - input_slice.shape[0] // 2:input_slice.shape[1] // 2 + input_slice.shape[0] // 2]
-            # resize to 128
-            input_slice = cv.resize(input_slice, (128, 128))
-            label_slice = cv.resize(label_slice, (128, 128), interpolation=cv.INTER_NEAREST)
-          else:
-            input_slice = image[..., slice_idx]
-            label_slice = label[..., slice_idx]
+          # if 'heart' in str(dataset_folder):
+          #   input_slice = image[:, slice_idx, :]
+          #   # crop height to width
+          #   label_slice = label[:, slice_idx, :]
+          #   label_slice = label[:, slice_idx, :]
+          #   # crop height to width
+          #   label_slice = label_slice[:, input_slice.shape[1] // 2 - input_slice.shape[0] // 2:input_slice.shape[1] // 2 + input_slice.shape[0] // 2]
+          #   input_slice = input_slice[:, input_slice.shape[1] // 2 - input_slice.shape[0] // 2:input_slice.shape[1] // 2 + input_slice.shape[0] // 2]
+          #   # resize to 128
+          #   input_slice = cv.resize(input_slice, (128, 128))
+          #   label_slice = cv.resize(label_slice, (128, 128), interpolation=cv.INTER_NEAREST)
+          # else:
+          input_slice = image[..., slice_idx]
+          label_slice = label[..., slice_idx]
 
           if input_slice.shape != label_slice.shape:
             print(f'file: {image_file}')

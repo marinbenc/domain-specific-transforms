@@ -2,14 +2,14 @@ import data.lesion.lesion_dataset as lesion
 import data.liver.liver_dataset as liver
 import data.eat.eat_dataset as eat
 import data.aorta.aorta_dataset as aorta
-import data.heart.heart_dataset as heart
+import data.prostate.prostate_dataset as prostate
 
 dataset_to_class = {
   'lesion': lesion.LesionDataset,
   'liver': liver.LiverDataset,
   'eat': eat.EATDataset,
   'aorta': aorta.AortaDataset,
-  'heart': heart.HeartDataset,
+  'prostate': prostate.ProstateDataset,
 }
 
 dataset_choices = dataset_to_class.keys()

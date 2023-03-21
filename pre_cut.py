@@ -8,6 +8,8 @@ import matplotlib.pyplot as plt
 
 import segmentation_models_pytorch as smp
 
+from kornia.losses import ssim_loss
+
 import utils
 from segmenters.grabcut_segmenter import GrabCutSegmenter
 from segmenters.cnn_segmenter import CNNSegmenter
@@ -22,7 +24,6 @@ def pre_cut_loss(output, target, threshold_loss_weight=5.0):
   output_thresh = output['threshold']
   th_loss = F.mse_loss(output_thresh, target_thresh)
   img_loss = F.l1_loss(output_img, target_img)
-
   return threshold_loss_weight * th_loss + img_loss
 
 def get_unet(dataset, device, checkpoint=None):
@@ -38,7 +39,7 @@ def _get_unet_loc_net(dataset, device, checkpoint=None):
   unet = get_unet(dataset, device, checkpoint)
   return unet.encoder
 
-def get_model(segmentation_method, dataset, pretrained_unet=None, device='cuda'):
+def get_model(segmentation_method, dataset, pretrained_unet=None, pretrained_precut=None, device='cuda', **segmenter_kwargs):
   """
   Returns a PreCut model with the specified segmentation method.
 
@@ -52,16 +53,23 @@ def get_model(segmentation_method, dataset, pretrained_unet=None, device='cuda')
   loc_net = _get_unet_loc_net(dataset, device, pretrained_unet)
   
   if segmentation_method == 'grabcut':
-    segmentation_model = GrabCutSegmenter(padding=dataset.padding)
+    segmentation_model = GrabCutSegmenter(padding=dataset.padding, **segmenter_kwargs)
   elif segmentation_method == 'cnn':
     unet = get_unet(dataset, device, pretrained_unet)
-    segmentation_model = CNNSegmenter(padding=dataset.padding, segmentation_model=unet)
+    segmentation_model = CNNSegmenter(padding=dataset.padding, segmentation_model=unet, **segmenter_kwargs)
   elif segmentation_method == 'none':
     segmentation_model = None
   else:
     raise ValueError(f'Invalid segmentation method: {segmentation_method}')
   
   model = PreCut(loc_net=loc_net, segmentation_model=segmentation_model)
+  if pretrained_precut is not None:
+    print('Pretraining PreCut...')
+    saved_model = torch.load(pretrained_precut)
+    saved_model = saved_model['model']
+    model.loc_net.load_state_dict({k.replace('loc_net.', ''): v for k, v in saved_model.items() if k.startswith('loc_net')})
+    model.thresh_head.load_state_dict({k.replace('thresh_head.', ''): v for k, v in saved_model.items() if k.startswith('thresh_head')})
+    model.stn_head.load_state_dict({k.replace('stn_head.', ''): v for k, v in saved_model.items() if k.startswith('stn_head')})
   model.to(device)
   return model
 
@@ -88,6 +96,8 @@ class PreCut(nn.Module):
       Built in segmentation models (see segmenters/):
         - GrabCutSegmenter: uses OpenCV's GrabCut algorithm
         - CNNSegmenter: uses a U-Net to segment the image
+
+    **segmenter_kwargs: keyword arguments to pass to the segmentation model
 
   Returns: 
     A dictionary with keys:
@@ -139,8 +149,8 @@ class PreCut(nn.Module):
       )
 
   def transform(self, x, theta, size):
-    grid = F.affine_grid(theta, size, align_corners=False)
-    x = F.grid_sample(x, grid)
+    grid = F.affine_grid(theta, size, align_corners=True)
+    x = F.grid_sample(x, grid, align_corners=True)
     return x
 
   def smooth_threshold(self, x, low, high):
@@ -174,10 +184,10 @@ class PreCut(nn.Module):
       theta = theta.view(-1, 2, 3)
 
       grid = F.affine_grid(theta, x.size(), align_corners=False)
-      x = F.grid_sample(x, grid)
-      mask = F.grid_sample(mask, grid)
+      x = F.grid_sample(x, grid, align_corners=True)
+      mask = F.grid_sample(mask, grid, align_corners=True)
       if x_th is not None:
-        x_th_stn = F.grid_sample(x_th, grid)
+        x_th_stn = F.grid_sample(x_th, grid, align_corners=True)
       else:
         x_th_stn = None
     

@@ -37,8 +37,14 @@ def get_model(model_type, log_dir, dataset, device):
     print('No saved U-Net model exists, skipping transfer learning')
     pretrained_unet = None
   
-  segmentation_method = 'none' if model_type == 'precut' else 'unet'
-  model = pre_cut.get_model(segmentation_method=segmentation_method, dataset=dataset, pretrained_unet=pretrained_unet)
+  segmentation_method = 'none' if model_type == 'precut' else 'cnn'
+
+  precut_path = p.join(log_dir, '../precut', 'precut_best.pth')
+  pretrained_precut = precut_path if model_type == 'precut_unet' else None
+  model = pre_cut.get_model(segmentation_method=segmentation_method, 
+                            dataset=dataset, pretrained_unet=pretrained_unet, 
+                            pretrained_precut=pretrained_precut)
+
   return model
 
 def train(model_type, batch_size, epochs, lr, dataset, threshold_loss_weight, log_name, log_dir, device):
@@ -139,7 +145,7 @@ if __name__ == '__main__':
     '--dataset', type=str, choices=datasets.dataset_choices, default='lesion', help='which dataset to use'
   )
   parser.add_argument(
-    '--threshold_loss_weight',
+    '--threshold-loss-weight',
     type=float,
     default=5.,
     help='the weight to be applied to the threshold loss term of the PreCut loss function',

@@ -84,7 +84,7 @@ class GrabCutSegmenter(nn.Module):
   
       # transform segmentation to original image space
       if has_object:
-        grid = F.affine_grid(theta_inv, img.size(), align_corners=False)
-        img = F.grid_sample(img, grid)
+        grid = F.affine_grid(theta_inv, img.size(), align_corners=True)
+        img = F.grid_sample(img, grid, align_corners=True)
     return img
 

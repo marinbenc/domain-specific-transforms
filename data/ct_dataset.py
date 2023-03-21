@@ -71,7 +71,7 @@ class CTDataset(base_dataset.BaseDataset):
       return scan.min(), scan.min()
     roi = scan[mask > 0]
     # TODO: Investigate this. Or use blur?
-    high = np.percentile(roi, 100) + th_padding
+    high = np.percentile(roi, 99) + th_padding
     low = np.percentile(roi, 1) - th_padding
     return low, high
 
@@ -79,14 +79,20 @@ class CTDataset(base_dataset.BaseDataset):
     current_slice_file = self.file_names[idx]
 
     scan = np.load(current_slice_file.replace('label/', 'input/'))
+    if len(scan.shape) == 3:
+      # use the first channel (e.g. for prostate which is a multi-modal dataset)
+      # TODO: Multi-channel support?
+      scan = scan[..., 0]
     mask = np.load(current_slice_file)
+    # Just use single class. TODO: Add multi-class support?
+    mask[mask > 0.5] = 1
 
     scan[scan < self.GLOBAL_MIN] = self.GLOBAL_MIN
     scan[scan > self.GLOBAL_MAX] = self.GLOBAL_MIN
 
     scan = scan.astype(np.float)
 
-    if 'itn' in self.transforms:
+    if 'th' in self.transforms:
       low, high = self.get_optimal_threshold(scan, mask, self.padding)
       self.WINDOW_MAX = high
       self.WINDOW_MIN = low
@@ -111,7 +117,7 @@ class CTDataset(base_dataset.BaseDataset):
 
     if 'stn' in self.transforms:
       # TODO: Make bbox_aug a command line argument
-      bbox_aug = 2 if self.augment and self.mode == 'train' else 0
+      bbox_aug = self.padding // 2 if self.augment and self.mode == 'train' else 0
       scan, mask = utils.crop_to_label(scan, mask, bbox_aug=bbox_aug, padding=self.padding)
 
     return scan, mask

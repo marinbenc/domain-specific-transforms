@@ -103,8 +103,8 @@ def test(model_type, dataset, log_name, dataset_folder, transforms, save_predict
     model = pre_cut.get_unet(test_dataset, device)
   elif model_type == 'precut':
     model = pre_cut.get_model(segmentation_method='grabcut', dataset=test_dataset)
-  elif model_type == 'precut-unet':
-    model = pre_cut.get_model(segmentation_method='unet', dataset=test_dataset)
+  elif model_type == 'precut_unet':
+    model = pre_cut.get_model(segmentation_method='cnn', dataset=test_dataset, sigmoid=True)
 
   checkpoint = get_checkpoint(model_type, log_name)
   model.load_state_dict(checkpoint['model'])
