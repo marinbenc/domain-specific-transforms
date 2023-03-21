@@ -12,14 +12,17 @@ import utils
 from segmenters.grabcut_segmenter import GrabCutSegmenter
 from segmenters.cnn_segmenter import CNNSegmenter
 
+def pre_cut_classification_loss(output, target):
+  loss = F.binary_cross_entropy_with_logits(output['is_empty'], target.unsqueeze(-1))
+  return loss
+
 def pre_cut_loss(output, target, threshold_loss_weight=5.0):
-  target_img, target_thresh = target
+  target_img, target_thresh, is_empty = target
   output_img = output['img_stn']
   output_thresh = output['threshold']
   th_loss = F.mse_loss(output_thresh, target_thresh)
   img_loss = F.l1_loss(output_img, target_img)
-  # TODO: Check if MSE is better than L1 for img_loss
-  # TODO: Check if SSIM is even more betterer
+
   return threshold_loss_weight * th_loss + img_loss
 
 def get_unet(dataset, device, checkpoint=None):
@@ -124,9 +127,16 @@ class PreCut(nn.Module):
         nn.Linear(128, 3 * 2)
       )
 
-      # Initialize the weights/bias with identity transformation
+      # Initialize to identity transformation
       self.stn_head[-1].weight.data.zero_()
       self.stn_head[-1].bias.data.copy_(torch.tensor([1, 0, 0, 0, 1, 0], dtype=torch.float))
+
+      # Regressor for the empty slice classification
+      self.is_empty_head = nn.Sequential(
+        nn.Linear(512 * 4 * 4, 128),
+        nn.ReLU(True),
+        nn.Linear(128, 1)
+      )
 
   def transform(self, x, theta, size):
     grid = F.affine_grid(theta, size, align_corners=False)
@@ -143,6 +153,8 @@ class PreCut(nn.Module):
     xs = self.loc_net(x)[-1]
     xs = self.avg_pool(xs)
     xs = xs.view(-1, 512 * 4 * 4)
+
+    is_empty  = self.is_empty_head(xs)
 
     # Threshold the image
     if self.threshold:
@@ -181,6 +193,8 @@ class PreCut(nn.Module):
 
     if self.segmentation_model is not None:
       seg = self.segmentation_model({'img_th_stn': x_th_stn, 'theta_inv': theta_inv})
+      #is_empty_class = torch.sigmoid(is_empty) > 0.5
+      #seg[is_empty_class] = torch.zeros_like(seg[is_empty_class])
     else:
       seg = None
 
@@ -192,6 +206,7 @@ class PreCut(nn.Module):
       'theta_inv': theta_inv,
       'img_th_stn': x_th_stn,
       'seg': seg,
+      'is_empty': is_empty
     }
 
     return output

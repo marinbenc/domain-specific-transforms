@@ -41,35 +41,57 @@ def get_model(model_type, log_dir, dataset, device):
   model = pre_cut.get_model(segmentation_method=segmentation_method, dataset=dataset, pretrained_unet=pretrained_unet)
   return model
 
-def train(model_type, batch_size, epochs, lr, dataset, subset, threshold_loss_weight, log_name, log_dir, device):
+def train(model_type, batch_size, epochs, lr, dataset, threshold_loss_weight, log_name, log_dir, device):
   def worker_init(worker_id):
     np.random.seed(2022 + worker_id)
 
   os.makedirs(log_dir, exist_ok=True)
 
+  train_datasets = []
+  losses = []
+  train_epochs = []
+
   if model_type == 'precut':
     dataset_class = datasets.get_dataset_class(dataset)
-    train_dataset = pre_cut_dataset.PreCutDataset(dataset_class, augment=False, subset=subset, directory='train')
-    valid_dataset = pre_cut_dataset.PreCutDataset(dataset_class, augment=False, subset=subset, directory='valid')
+    train_dataset_transform = pre_cut_dataset.PreCutTransformDataset(dataset_class, augment=False, directory='train')
+    valid_dataset_transform = pre_cut_dataset.PreCutTransformDataset(dataset_class, augment=False, directory='valid')
+
+    train_dataset_class = pre_cut_dataset.PreCutClassificationDataset(dataset_class, augment=True, directory='train')
+    valid_dataset_class = pre_cut_dataset.PreCutClassificationDataset(dataset_class, augment=False, directory='valid')
+
+    train_datasets.append((train_dataset_transform, valid_dataset_transform))
+    train_epochs.append(100)
+    losses.append(functools.partial(pre_cut.pre_cut_loss, threshold_loss_weight=threshold_loss_weight))
+
+    #train_datasets.append((train_dataset_class, valid_dataset_class))
+    #train_epochs.append(50)
+    #losses.append(pre_cut.pre_cut_classification_loss)
+
   else:
-    train_dataset, valid_dataset = datasets.get_datasets(dataset, subset, augment=True)
+    train_dataset, valid_dataset = datasets.get_datasets(dataset, augment=True)
+    train_datasets.append((train_dataset, valid_dataset))
+    train_epochs.append(epochs)
+    losses.append(cnn_seg.DiceLoss())
 
-  train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, worker_init_fn=worker_init)
-  valid_loader = DataLoader(valid_dataset, worker_init_fn=worker_init)
-  
-  model = get_model(model_type, log_dir, train_dataset, device)
+  model = get_model(model_type, log_dir, train_datasets[0][0], device)
 
-  optimizer = optim.Adam(model.parameters(), lr=lr)
-  scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.1, patience=5, verbose=True, min_lr=1e-15, eps=1e-15)
+  for (train_dataset, valid_dataset), epochs, loss in zip(train_datasets, train_epochs, losses):
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, worker_init_fn=worker_init)
+    valid_loader = DataLoader(valid_dataset, worker_init_fn=worker_init)
+    
+    optimizer = optim.Adam(model.parameters(), lr=lr)
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.1, patience=3, verbose=True, min_lr=1e-15, eps=1e-15)
+        
+    trainer = utils.Trainer(model, optimizer, loss, train_loader, valid_loader, 
+                            log_dir=log_dir, checkpoint_name=f'{model_type}_best.pth', scheduler=scheduler)
+    trainer.train(epochs)
 
-  if model_type == 'precut':
-    loss = functools.partial(pre_cut.pre_cut_loss, threshold_loss_weight=threshold_loss_weight)
-  else:
-    loss = cnn_seg.DiceLoss()
-  
-  trainer = utils.Trainer(model, optimizer, loss, train_loader, valid_loader, 
-                          log_dir=log_dir, checkpoint_name=f'{model_type}_best.pth', scheduler=scheduler)
-  trainer.train(epochs)
+    for parameter in model.loc_net.parameters():
+      parameter.requires_grad = False
+    for parameter in model.stn_head.parameters():
+      parameter.requires_grad = False
+    for parameter in model.thresh_head.parameters():
+      parameter.requires_grad = False
 
 if __name__ == '__main__':
   parser = argparse.ArgumentParser(
@@ -121,9 +143,6 @@ if __name__ == '__main__':
     type=float,
     default=5.,
     help='the weight to be applied to the threshold loss term of the PreCut loss function',
-  )
-  parser.add_argument(
-    '--subset', type=str, choices=datasets.all_subsets, default='isic', help='which dataset to use'
   )
   parser.add_argument(
     '--log-name', type=str, default=datetime.datetime.now().strftime("%Y-%m-%d-%H:%M:%S"), help='name of folder where models are saved',

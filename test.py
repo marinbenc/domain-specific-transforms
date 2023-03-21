@@ -25,7 +25,7 @@ def get_checkpoint(model_type, log_name):
   checkpoint = torch.load(checkpoint, map_location=device)
   return checkpoint
 
-def get_predictions(model, dataset):
+def get_predictions(model, dataset, viz=False):
   xs = []
   ys = []
   ys_pred = []
@@ -34,10 +34,6 @@ def get_predictions(model, dataset):
   with torch.no_grad():
     for idx, (data, target) in enumerate(dataset):
       x_np, y_np = dataset.get_item_np(idx)
-
-      _, number_of_objects = ndimage.label(y_np)
-      if number_of_objects > 1:
-        continue
 
       xs.append(x_np)
       ys.append(y_np)
@@ -48,51 +44,53 @@ def get_predictions(model, dataset):
       if isinstance(model, pre_cut.PreCut):
         segmentation = output['seg'].squeeze().detach().cpu().numpy()
         ys_pred.append(segmentation)
+
+        if viz and y_np.sum() > 5:
+          viz_titles = ['target']
+          viz_images = [target.squeeze()]
+
+          for key, value in output.items():
+            if value.dim() == 4:
+              viz_titles.append(key)
+              viz_images.append(value.squeeze())
+          
+          utils.show_torch(imgs=viz_images, titles=viz_titles)
       else:
         output = output.squeeze().detach().cpu().numpy()
         output = utils._thresh(output)
         ys_pred.append(output)
 
-      #viz_data = data.detach().cpu().numpy().transpose(1, 2, 0)
-      #viz_target = target.squeeze().detach().cpu().numpy()
-
-      #utils.show_images_row(
-      #  imgs=[x_np + 0.5, viz_data, viz_target, output, viz_target - output],figsize=(20, 5))
-
   return xs, ys, ys_pred
 
-def run_stn_predictions(model, dataset):
-  model.eval()
-  with torch.no_grad():
-    for data, target in dataset:
-      data, target = data.to(device), target.to(device)
-      output = model(data.unsqueeze(0))
-      #utils.show_torch([data + 0.5, output.squeeze() + 0.5, (data + 0.5) - (output.squeeze() + 0.5), target.squeeze() + 0.5])
-
-
-def calculate_metrics(ys_pred, ys, metrics):
+def calculate_metrics(ys_pred, ys, metrics, subjects=None):
   '''
   Parameters:
     ys_pred: model-predicted segmentation masks
     ys: the GT segmentation masks
     metrics: a dictionary of type `{metric_name: metric_fn}` 
     where `metric_fn` is a function that takes `(y_pred, y)` and returns a float.
+    subjects: a list of subject IDs, one for each element in ys_pred. If provided, the
+    returned DataFrame will have a column with the subject IDs.
 
   Returns:
     A DataFrame with one column per metric and one row per image.
   '''
-  metric_names, metric_fns = metrics.keys(), metrics.values()
-  df = pd.DataFrame(columns=metric_names)
+  metric_names, metric_fns = list(metrics.keys()), metrics.values()
+  columns = metric_names + ['subject']
+  df = pd.DataFrame(columns=columns)
 
-  for (y_pred, y) in zip(ys_pred, ys):
-    df.loc[len(df)] = [metric(y_pred, y) for metric in metric_fns]
+  if subjects is None:
+    subjects = ['none'] * len(ys_pred)
+
+  for (y_pred, y, subject) in zip(ys_pred, ys, subjects):
+    df.loc[len(df)] = [metric(y_pred, y) for metric in metric_fns] + [subject]
 
   return df
 
-def test(model_type, dataset, log_name, dataset_folder, subset, transforms, save_predictions):
-  train_dataset, valid_dataset = data.get_datasets(dataset, subset, augment=False, transforms=transforms)
-  whole_dataset = data.get_whole_dataset(dataset, subset, transforms=transforms)
-  test_dataset = data.get_test_dataset(dataset, subset, transforms=transforms)
+def test(model_type, dataset, log_name, dataset_folder, transforms, save_predictions):
+  train_dataset, valid_dataset = data.get_datasets(dataset, augment=False, transforms=transforms)
+  whole_dataset = data.get_whole_dataset(dataset, transforms=transforms)
+  test_dataset = data.get_test_dataset(dataset, transforms=transforms)
 
   if dataset_folder == 'train':
     test_dataset = train_dataset
@@ -114,16 +112,18 @@ def test(model_type, dataset, log_name, dataset_folder, subset, transforms, save
   xs, ys, ys_pred = get_predictions(model, test_dataset)
 
   if save_predictions:
-    os.makedirs(p.join('predictions', log_name, subset), exist_ok=True)
+    os.makedirs(p.join('predictions', log_name), exist_ok=True)
     for i in range(len(ys_pred)):
-      cv.imwrite(p.join('predictions', log_name, subset, f'{i}.png'), ys_pred[i] * 255)
+      cv.imwrite(p.join('predictions', log_name, f'{i}.png'), ys_pred[i] * 255)
     
   metrics = {
     'dsc': utils.dsc,
     'prec': utils.precision,
     'rec': utils.recall,
   }
-  df = calculate_metrics(ys, ys_pred, metrics)
+  df = calculate_metrics(ys, ys_pred, metrics, subjects=test_dataset.subjects)
+  if test_dataset.subjects is not None:
+    df = df.groupby('subject').mean()
 
   print(df.describe())
 
@@ -138,9 +138,6 @@ if __name__ == '__main__':
     )
     parser.add_argument(
         '--dataset', type=str, choices=data.dataset_choices, default='lesion', help='which dataset to use'
-    )
-    parser.add_argument(
-        '--subset', type=str, choices=data.all_subsets, default='isic', help='which dataset to use'
     )
     parser.add_argument(
         '--dataset-folder', type=str, choices=['train', 'valid', 'test', 'all'], default='test'

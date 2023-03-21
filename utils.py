@@ -139,6 +139,7 @@ class Trainer:
 
     self.writer = SummaryWriter(log_dir=self.log_dir)
     self.best_loss = float('inf')
+    self.epochs_since_best = 0
 
   def _to_device(self, data):
     if isinstance(data, (list, tuple)):
@@ -151,10 +152,19 @@ class Trainer:
       return data.to(self.device, non_blocking=True)
 
   def train(self, epochs):
+    self.epochs_since_best = 0
+    self.best_loss = float('inf')
+
     for epoch in range(epochs):
-      self._train_epoch(epoch)
+      early_stop = self._train_epoch(epoch)
+      if early_stop:
+        break
 
   def _train_epoch(self, epoch):
+    """
+    Returns:
+      early_stop: True if early stopping should be performed
+    """
     if epoch == 0:
       self.best_loss = float('inf')
     
@@ -199,7 +209,15 @@ class Trainer:
     if loss_total < self.best_loss and True:
         print('Saving new best model...')
         self.best_loss = loss_total
+        self.epochs_since_best = 0
         save_checkpoint(self.checkpoint_name, self.writer.log_dir, self.model, epoch, self.optimizer, loss_total)
+    
+    if self.epochs_since_best > 10:
+      print('Early stopping')
+      return True
+    
+    self.epochs_since_best += 1
+    return False
 
     #if (epoch - 1) % 10 == 0:
     #  show_torch(imgs=[input[0][0], output['img_stn'][0][0], target[0][0]])
@@ -273,7 +291,7 @@ def listdir(path):
   """ List files but remove hidden files from list """
   return [item for item in os.listdir(path) if item[0] != '.']
 
-def show_torch(imgs, show=True, save=False, save_path=None, figsize=(6.4, 4.8), **kwargs):
+def show_torch(imgs, titles=None, show=True, save=False, save_path=None, figsize=(6.4, 4.8), **kwargs):
     if not isinstance(imgs, list):
         imgs = [imgs]
     fig, axs = plt.subplots(ncols=len(imgs), squeeze=False, figsize=figsize)
@@ -282,6 +300,8 @@ def show_torch(imgs, show=True, save=False, save_path=None, figsize=(6.4, 4.8), 
         img = F.to_pil_image(img)
         axs[0, i].imshow(np.asarray(img), **kwargs)
         axs[0, i].set(xticklabels=[], yticklabels=[], xticks=[], yticks=[])
+        if titles is not None:
+          axs[0, i].set_title(titles[i])
     if save:
         plt.savefig(save_path, bbox_inches='tight', pad_inches=0)
     if show:

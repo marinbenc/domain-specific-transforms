@@ -30,12 +30,21 @@ class GrabCutSegmenter(nn.Module):
     super(GrabCutSegmenter, self).__init__()
     self.padding = padding
 
+  def _is_valid_bbox(self, bbox, img_shape):
+    return (
+      bbox[0] >= 0 and 
+      bbox[1] >= 0 and 
+      bbox[2] < img_shape[1] and
+      bbox[2] > 0 and
+      bbox[3] < img_shape[0] and
+      bbox[3] > 0)
+
   def forward(self, x):
     img, theta_inv = x['img_th_stn'].clone(), x['theta_inv']
 
     for batch in range(img.shape[0]):
       input = img[batch].detach().cpu().numpy().squeeze()
-      input = cv.cvtColor(input * 255,cv.COLOR_GRAY2RGB).astype(np.uint8)
+      has_object = (input.max() - input.min()) > 0.1
 
       # padding is in original image space, so scale it to the transformed image space
       scale_x, scale_y = theta_inv.squeeze()[0, 0].item(), theta_inv.squeeze()[1, 1].item()
@@ -45,30 +54,37 @@ class GrabCutSegmenter(nn.Module):
         input.shape[1] - self.padding // 2 * scale_x, 
         input.shape[0] - self.padding // 2 * scale_y]
 
-      #print(bbox)
-      # plt.imshow(input)
-      # plt.gca().add_patch(plt.Rectangle((bbox[0], bbox[1]), bbox[2], bbox[3], fill=False, edgecolor='red', linewidth=2))
-      # plt.show()
+      if has_object and self._is_valid_bbox(bbox, input.shape):
+        input = cv.cvtColor(input * 255,cv.COLOR_GRAY2RGB).astype(np.uint8)
 
-      mask = np.zeros(input.shape[:2],np.uint8)
-      # TODO: Check influence of circle
-      # draw circle in center of bbox
-      #cv.circle(mask, center=(int(bbox[0] + bbox[2] / 2), int(bbox[1] + bbox[3] / 2)), radius=int(bbox[2] / 8), color=cv.GC_FGD, thickness=-1)
-      #plt.imshow(mask)
-      #plt.show()
+        #print(bbox)
+        #plt.imshow(input)
+        #plt.gca().add_patch(plt.Rectangle((bbox[0], bbox[1]), bbox[2], bbox[3], fill=False, edgecolor='red', linewidth=2))
+        #plt.show()
 
-      bg_model = np.zeros((1,65),np.float64)
-      fg_model = np.zeros((1,65),np.float64)
+        mask = np.zeros(input.shape[:2],np.uint8)
+        # TODO: Check influence of circle
+        # draw circle in center of bbox
+        #cv.circle(mask, center=(int(bbox[0] + bbox[2] / 2), int(bbox[1] + bbox[3] / 2)), radius=int(bbox[2] / 8), color=cv.GC_FGD, thickness=-1)
+        #plt.imshow(mask)
+        #plt.show()
 
-      cv.grabCut(input, mask, bbox, bg_model, fg_model, 5, cv.GC_INIT_WITH_RECT)
-      
-      segmentation = np.where((mask==2)|(mask==0),0,1)
-      segmentation = torch.from_numpy(segmentation).unsqueeze(0).float()
+        bg_model = np.zeros((1,65),np.float64)
+        fg_model = np.zeros((1,65),np.float64)
+
+        cv.grabCut(input, mask, bbox, bg_model, fg_model, 5, cv.GC_INIT_WITH_RECT)
+          
+        segmentation = np.where((mask==2)|(mask==0),0,1)
+        segmentation = torch.from_numpy(segmentation).unsqueeze(0).float()
+      else:
+        mask = np.zeros(input.shape[:2],np.uint8)
+        segmentation = torch.from_numpy(mask).unsqueeze(0).float()
     
       img[batch][:] = segmentation[:]
-    
-    # transform segmentation to original image space
-    grid = F.affine_grid(theta_inv, img.size(), align_corners=False)
-    img = F.grid_sample(img, grid)
+  
+      # transform segmentation to original image space
+      if has_object:
+        grid = F.affine_grid(theta_inv, img.size(), align_corners=False)
+        img = F.grid_sample(img, grid)
     return img
 

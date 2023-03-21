@@ -24,10 +24,9 @@ class BaseDataset(Dataset):
   in_channels = 1
   out_channels = 1
 
-  def __init__(self, directory, subset='', augment=True, transforms=[]):
+  def __init__(self, directory, augment=True, transforms=[]):
     self.mode = directory
     self.augment = augment
-    self.subset = subset
     self.transforms = transforms
 
     if directory == 'all':
@@ -37,7 +36,7 @@ class BaseDataset(Dataset):
 
     self.file_names = []
     for directory in directories:
-      directory = p.join(p.dirname(__file__), self.dataset_folder, subset, directory)
+      directory = p.join(p.dirname(__file__), self.dataset_folder, directory)
       directory_files = utils.listdir(p.join(directory, 'label'))
       directory_files = [p.join(directory, 'label', f) for f in directory_files]
       directory_files.sort()
