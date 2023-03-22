@@ -19,7 +19,8 @@ class DiceLoss(nn.Module):
     return torch.abs((y_pred - y_true) ** pow).mean()
 
   def forward(self, y_pred, y_true):
-    y_pred = y_pred['seg']
+    if isinstance(y_pred, dict):
+      y_pred = y_pred['seg']
     y_pred = torch.sigmoid(y_pred)
     dscs = torch.zeros(y_pred.shape[1])
 

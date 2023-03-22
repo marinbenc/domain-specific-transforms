@@ -63,11 +63,6 @@ class GrabCutSegmenter(nn.Module):
         #plt.show()
 
         mask = np.zeros(input.shape[:2],np.uint8)
-        # TODO: Check influence of circle
-        # draw circle in center of bbox
-        #cv.circle(mask, center=(int(bbox[0] + bbox[2] / 2), int(bbox[1] + bbox[3] / 2)), radius=int(bbox[2] / 8), color=cv.GC_FGD, thickness=-1)
-        #plt.imshow(mask)
-        #plt.show()
 
         bg_model = np.zeros((1,65),np.float64)
         fg_model = np.zeros((1,65),np.float64)
