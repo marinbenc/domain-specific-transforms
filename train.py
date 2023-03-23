@@ -77,7 +77,12 @@ def train(model_type, batch_size, epochs, lr, dataset, threshold_loss_weight, lo
     train_dataset, valid_dataset = datasets.get_datasets(dataset, augment=True)
     train_datasets.append((train_dataset, valid_dataset))
     train_epochs.append(epochs)
-    losses.append(cnn_seg.DiceLoss())
+
+    def seg_loss(pred, target):
+      dice_loss = cnn_seg.DiceLoss()(pred, target)
+      pre_cut_loss = pre_cut.pre_cut_loss(pred, target, threshold_loss_weight=threshold_loss_weight)
+      return dice_loss * 0.1 + pre_cut_loss
+    losses.append(seg_loss)
 
   model = get_model(model_type, log_dir, train_datasets[0][0], device)
 

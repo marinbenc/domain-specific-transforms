@@ -23,12 +23,13 @@ def pre_cut_loss(output, target, threshold_loss_weight=5.0):
   output_img = output['img_stn']
   output_thresh = output['threshold']
   th_loss = F.mse_loss(output_thresh, target_thresh)
-  img_loss = F.l1_loss(output_img, target_img)
+  img_loss = F.mse_loss(output_img, target_img)
   return threshold_loss_weight * th_loss + img_loss
 
 def get_unet(dataset, device, checkpoint=None):
   unet = smp.Unet('resnet18', in_channels=dataset.in_channels, classes=1, 
-                  activation=None, decoder_use_batchnorm=True)
+                  activation=None, decoder_use_batchnorm=True,
+                  encoder_depth=3, decoder_channels=(128, 64, 16))
   unet = unet.to(device)
   if checkpoint is not None:
     saved_unet = torch.load(checkpoint)
@@ -62,7 +63,8 @@ def get_model(segmentation_method, dataset, pretrained_unet=None, pretrained_pre
   else:
     raise ValueError(f'Invalid segmentation method: {segmentation_method}')
   
-  model = PreCut(loc_net=loc_net, segmentation_model=segmentation_model)
+  # TODO: Rename dataset.width to dataset.size or similar
+  model = PreCut(loc_net=loc_net, segmentation_model=segmentation_model, input_size=dataset.width)
   if pretrained_precut is not None:
     print('Pretraining PreCut...')
     saved_model = torch.load(pretrained_precut)
@@ -108,12 +110,13 @@ class PreCut(nn.Module):
       - 'img_th_stn': STN-transformed image (with thresholding)
       - 'seg': segmentation mask obtained with GrabCut
   """
-  def __init__(self, loc_net, threshold=True, stn_transform=True, segmentation_model=None):
+  def __init__(self, loc_net, input_size=128, threshold=True, stn_transform=True, segmentation_model=None):
       super(PreCut, self).__init__()
 
       self.threshold = threshold
       self.stn_transform = stn_transform
       self.segmentation_model = segmentation_model
+      self.input_size = input_size
 
       # Spatial transformer localization-network
       self.loc_net = loc_net
@@ -121,7 +124,7 @@ class PreCut(nn.Module):
 
       # Regressor for the threshold
       self.thresh_head = nn.Sequential(
-        nn.Linear(512 * 4 * 4, 128),
+        nn.Linear(self.input_size * 4 * 4, 128),
         nn.ReLU(True),
         nn.Linear(128, 2)
       )
@@ -132,7 +135,7 @@ class PreCut(nn.Module):
 
       # Regressor for the 3 * 2 affine matrix
       self.stn_head = nn.Sequential(
-        nn.Linear(512 * 4 * 4, 128),
+        nn.Linear(self.input_size * 4 * 4, 128),
         nn.ReLU(True),
         nn.Linear(128, 3 * 2)
       )
@@ -143,7 +146,7 @@ class PreCut(nn.Module):
 
       # Regressor for the empty slice classification
       self.is_empty_head = nn.Sequential(
-        nn.Linear(512 * 4 * 4, 128),
+        nn.Linear(self.input_size * 4 * 4, 128),
         nn.ReLU(True),
         nn.Linear(128, 1)
       )
@@ -162,7 +165,7 @@ class PreCut(nn.Module):
   def forward(self, x):
     xs = self.loc_net(x)[-1]
     xs = self.avg_pool(xs)
-    xs = xs.view(-1, 512 * 4 * 4)
+    xs = xs.view(-1, self.input_size * 4 * 4)
 
     is_empty  = self.is_empty_head(xs)
 
@@ -192,8 +195,8 @@ class PreCut(nn.Module):
         x_th_stn = None
     
     #print(theta)
-    #plt.imshow(x_th_stn[0, 0].detach().cpu().numpy())
-    #plt.show()
+    # plt.imshow(x_th_stn[0, 0].detach().cpu().numpy())
+    # plt.show()
 
     row = torch.tensor([0, 0, 1], dtype=theta.dtype, device=theta.device).expand(theta.shape[0], 1, 3)
     theta_sq = torch.cat([theta, row], dim=1)

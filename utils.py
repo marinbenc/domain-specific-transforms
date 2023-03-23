@@ -214,7 +214,7 @@ class Trainer:
       self.optimizer.step()
       loss_total += loss.item()
     
-    self._plot_grad_flow(self.model.named_parameters())
+    #self._plot_grad_flow(self.model.named_parameters())
     loss_total /= len(self.train_loader)
     self.writer.add_scalar('Loss/train', loss_total, epoch)
 

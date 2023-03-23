@@ -16,5 +16,5 @@ class ProstateDataset(ct_dataset.CTDataset):
   width = 128
   height = 128
 
-  padding = 8
+  padding = 16
   th_aug = 0.05

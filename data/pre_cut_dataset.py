@@ -57,6 +57,7 @@ class PreCutClassificationDataset(Dataset):
 
     self.in_channels = self.wrapped_dataset.in_channels
     self.out_channels = self.wrapped_dataset.out_channels
+    self.width = self.wrapped_dataset.width
 
   def get_augmentation(self):
     return A.Compose([
@@ -132,6 +133,6 @@ class PreCutTransformDataset(PreCutClassificationDataset):
     input_stn = transformed['image_stn'].float()
     label = transformed['mask']
 
-    #utils.show_torch(imgs=[input, input_stn, input_th_stn])
+    # utils.show_torch(imgs=[input, input_stn, input_th_stn])
 
     return input, (input_stn, th, is_empty)

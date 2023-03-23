@@ -25,7 +25,7 @@ def get_checkpoint(model_type, log_name):
   checkpoint = torch.load(checkpoint, map_location=device)
   return checkpoint
 
-def get_predictions(model, dataset, viz=False):
+def get_predictions(model, dataset, viz=True):
   xs = []
   ys = []
   ys_pred = []
