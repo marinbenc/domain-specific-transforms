@@ -6,6 +6,7 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 import matplotlib.pyplot as plt
+import cv2 as cv
 
 import albumentations as A
 from albumentations.pytorch.transforms import ToTensorV2
@@ -39,6 +40,7 @@ def WeakSupervisionDataset(pre_cut_dataset, labeled_percent=0.1):
 
   return labeled_dataset, unlabeled_dataset
 
+# TODO: Remove this class if no longer needed
 class PreCutClassificationDataset(Dataset):
   """
   A dataset that wraps another dataset to be used by the PreCut classification branch.
@@ -50,21 +52,29 @@ class PreCutClassificationDataset(Dataset):
     wrapped_dataset_class: The dataset to wrap.
     **dataset_kwargs: The arguments to pass to the dataset.
   """
-  def __init__(self, wrapped_dataset_class, **dataset_kwargs):
-    self.wrapped_dataset = wrapped_dataset_class(transforms=[], **dataset_kwargs)
-    self.wrapped_dataset_th_stn = wrapped_dataset_class(transforms=['th', 'stn'], **dataset_kwargs)
-    self.wrapped_dataset_stn = wrapped_dataset_class(transforms=['stn'], **dataset_kwargs)
+  def __init__(self, wrapped_dataset_class, pretraining, **dataset_kwargs):
+    self.wrapped_dataset = wrapped_dataset_class(transforms=[], augment=pretraining, **dataset_kwargs)
+    self.wrapped_dataset_th_stn = wrapped_dataset_class(transforms=['th', 'stn'], augment=pretraining, **dataset_kwargs)
+    self.wrapped_dataset_stn = wrapped_dataset_class(transforms=['stn'], augment=pretraining, **dataset_kwargs)
 
     self.in_channels = self.wrapped_dataset.in_channels
     self.out_channels = self.wrapped_dataset.out_channels
     self.width = self.wrapped_dataset.width
+    self.padding = self.wrapped_dataset.padding
+    self.subjects = self.wrapped_dataset.subjects
+    self.pretraining = pretraining
 
-  def get_augmentation(self):
+  def get_augmentation_pretraining(self):
     return A.Compose([
       A.HorizontalFlip(p=0.5),
       A.GridDistortion(p=0.5),
-      A.ShiftScaleRotate(p=0.5, rotate_limit=15, scale_limit=0.15, shift_limit=0.15),
+      A.ShiftScaleRotate(p=0.5, rotate_limit=15, scale_limit=0.15, shift_limit=0.15, border_mode=cv.BORDER_CONSTANT, value=0),
       # TODO: Try brightness / contrast / gamma
+      ToTensorV2()
+    ], additional_targets={'image_th_stn': 'image', 'image_stn': 'image'})
+  
+  def get_augmentation(self):
+    return A.Compose([
       ToTensorV2()
     ], additional_targets={'image_th_stn': 'image', 'image_stn': 'image'})
 
@@ -96,43 +106,59 @@ class PreCutTransformDataset(PreCutClassificationDataset):
   Attributes:
     wrapped_dataset_class: The dataset to wrap.
     **dataset_kwargs: The arguments to pass to the dataset.
+    pretraining: Whether to use the pretraining dataset. The pretraining dataset
+      removes empty slices and uses heavy augmentation to pre-train the STN and
+      thresholding branches.
   """
-  def __init__(self, wrapped_dataset_class, **dataset_kwargs):
-    super().__init__(wrapped_dataset_class, **dataset_kwargs)
+  def __init__(self, wrapped_dataset_class, pretraining, **dataset_kwargs):
+    super().__init__(wrapped_dataset_class, pretraining, **dataset_kwargs)
 
-    total_before_removal = len(self.wrapped_dataset)
-    to_remove = []
+    if pretraining:
+      total_before_removal = len(self.wrapped_dataset)
+      to_remove = []
 
-    for idx in range(len(self.wrapped_dataset)):
-      input, label = self.wrapped_dataset.get_item_np(idx)
-      if np.sum(label) < 5:
-        to_remove.append(idx)
-    
-    print(f'Removing {len(to_remove)} empty slices out of {total_before_removal}.')
-    new_filenames = np.array(self.wrapped_dataset.file_names)
-    new_filenames = np.delete(new_filenames, to_remove).tolist()
+      for idx in range(len(self.wrapped_dataset)):
+        input, label, _ = self.wrapped_dataset.get_item_np(idx)
+        if np.sum(label) < 5:
+          to_remove.append(idx)
+      
+      print(f'Removing {len(to_remove)} empty slices out of {total_before_removal}.')
+      new_filenames = np.array(self.wrapped_dataset.file_names)
+      new_filenames = np.delete(new_filenames, to_remove).tolist()
 
-    self.wrapped_dataset.file_names = new_filenames
-    self.wrapped_dataset_th_stn.file_names = new_filenames
-    self.wrapped_dataset_stn.file_names = new_filenames
+      self.wrapped_dataset.file_names = new_filenames
+      self.wrapped_dataset_th_stn.file_names = new_filenames
+      self.wrapped_dataset_stn.file_names = new_filenames
 
   def __getitem__(self, idx):
-    input, label = self.wrapped_dataset.get_item_np(idx)
+    input, label, _ = self.wrapped_dataset.get_item_np(idx)
     is_empty = np.sum(label) < 5
     is_empty = torch.tensor(is_empty, dtype=torch.bool)
 
-    input_th_stn, _ = self.wrapped_dataset_th_stn.get_item_np(idx)
-    input_stn, _ = self.wrapped_dataset_stn.get_item_np(idx)
+    input_th_stn, _, _ = self.wrapped_dataset_th_stn.get_item_np(idx)
+    input_stn, _, theta_tensor = self.wrapped_dataset_stn.get_item_np(idx)
     th_low, th_high = self.wrapped_dataset_th_stn.get_optimal_threshold(input, label)
     th = torch.tensor([th_low, th_high], dtype=torch.float)
 
-    augmentation = self.get_augmentation()
+    if self.pretraining:
+      augmentation = self.get_augmentation_pretraining()
+    else:
+      augmentation = self.get_augmentation()
     transformed = augmentation(image=input, image_th_stn=input_th_stn, image_stn=input_stn, mask=label)
     input = transformed['image'].float()
     input_th_stn = transformed['image_th_stn'].float()
     input_stn = transformed['image_stn'].float()
-    label = transformed['mask']
+    label = transformed['mask'].unsqueeze(0)
+    
+    output_dict = {
+      'input': input,
+      'img_th_stn': input_th_stn,
+      'img_stn': input_stn,
+      'seg': label,
+      'theta': theta_tensor,
+      'threshold': th,
+    }
 
     # utils.show_torch(imgs=[input, input_stn, input_th_stn])
 
-    return input, (input_stn, th, is_empty)
+    return input, output_dict

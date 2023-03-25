@@ -3,6 +3,7 @@ import data.liver.liver_dataset as liver
 import data.eat.eat_dataset as eat
 import data.aorta.aorta_dataset as aorta
 import data.prostate.prostate_dataset as prostate
+import data.spleen.spleen_dataset as spleen
 
 dataset_to_class = {
   'lesion': lesion.LesionDataset,
@@ -10,6 +11,7 @@ dataset_to_class = {
   'eat': eat.EATDataset,
   'aorta': aorta.AortaDataset,
   'prostate': prostate.ProstateDataset,
+  'spleen': spleen.SpleenDataset,
 }
 
 dataset_choices = dataset_to_class.keys()
@@ -28,7 +30,7 @@ def get_datasets(dataset, augment=True, transforms=[]):
 def get_whole_dataset(dataset, transforms=[]):
   dataset_class = get_dataset_class(dataset)
   whole_dataset = dataset_class(directory='all', augment=False, transforms=transforms)
-  return dataset
+  return whole_dataset
 
 def get_test_dataset(dataset, transforms=[]):
   dataset_class = get_dataset_class(dataset)

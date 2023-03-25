@@ -53,7 +53,8 @@ class CTDataset(base_dataset.BaseDataset):
   width = 256
   height = 256
 
-  padding = 4
+  padding = 16
+  th_padding = 10
   th_aug = 0.05
 
   def __init__(self, directory, augment=True, transforms=[]):
@@ -87,26 +88,29 @@ class CTDataset(base_dataset.BaseDataset):
     # Just use single class. TODO: Add multi-class support?
     mask[mask > 0.5] = 1
 
-    scan[scan < self.GLOBAL_MIN] = self.GLOBAL_MIN
-    scan[scan > self.GLOBAL_MAX] = self.GLOBAL_MIN
+    #scan[scan < self.GLOBAL_MIN] = self.GLOBAL_MIN
+    #scan[scan > self.GLOBAL_MAX] = self.GLOBAL_MIN
 
     scan = scan.astype(np.float)
 
+    # TODO: Move this to PreCutDataset
     if 'th' in self.transforms:
-      low, high = self.get_optimal_threshold(scan, mask, self.padding)
+      low, high = self.get_optimal_threshold(scan, mask, self.th_padding)
       self.WINDOW_MAX = high
       self.WINDOW_MIN = low
 
-      if self.augment and self.mode == 'train' and th_aug > 0:
-        self.WINDOW_MAX += np.random.randint(-high * self.th_aug, high * self.th_aug)
-        self.WINDOW_MIN += np.random.randint(-high * self.th_aug, high * self.th_aug)
+      if self.augment and self.mode == 'train' and self.th_aug > 0:
+        window_width = self.WINDOW_MAX - self.WINDOW_MIN
+        aug_range = window_width * self.th_aug
+        self.WINDOW_MAX += np.random.randint(-aug_range, aug_range)
+        self.WINDOW_MIN += np.random.randint(-aug_range, aug_range)
 
       # window input slice
       scan[scan > self.WINDOW_MAX] = self.WINDOW_MIN
       scan[scan < self.WINDOW_MIN] = self.WINDOW_MIN
 
       # normalize
-      scan = (scan - self.WINDOW_MIN) / (self.WINDOW_MAX - self.WINDOW_MIN + 1e-8)
+      scan = (scan - self.WINDOW_MIN) / (self.WINDOW_MAX - self.WINDOW_MIN)
     else:
       scan = (scan - self.GLOBAL_MIN) / (self.GLOBAL_MAX - self.GLOBAL_MIN)
 
@@ -115,12 +119,13 @@ class CTDataset(base_dataset.BaseDataset):
       scan = transformed['image']
       mask = transformed['mask']
 
+    theta_tensor = None
     if 'stn' in self.transforms:
       # TODO: Make bbox_aug a command line argument
       bbox_aug = self.padding // 2 if self.augment and self.mode == 'train' else 0
-      scan, mask = utils.crop_to_label(scan, mask, bbox_aug=bbox_aug, padding=self.padding)
+      scan, mask, theta_tensor = utils.crop_to_label(scan, mask, bbox_aug=bbox_aug, padding=self.padding)
 
-    return scan, mask
+    return scan, mask, theta_tensor
 
   def __len__(self):
     return len(self.file_names)
@@ -141,8 +146,6 @@ class CTDataset(base_dataset.BaseDataset):
 
     input_tensor = torch.from_numpy(input).float()
     label_tensor = torch.from_numpy(label)
-
-    #utils.show_torch([input_tensor + 0.5, label_tensor])
 
     return input_tensor, label_tensor
 

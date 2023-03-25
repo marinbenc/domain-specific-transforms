@@ -29,6 +29,9 @@ def main(dataset_folder):
 
   splits = ['train', 'valid', 'test']
 
+  mask_max = 4096
+  mask_min = -4096
+
   global_max = 4096
   global_min = -4096
 
@@ -55,7 +58,12 @@ def main(dataset_folder):
       
       case_name = image_file.name.split('/')[-1].split('.')[0]
 
-      slices = image.shape[-1] if len(image.shape) == 3 else image.shape[1]
+      slice_dim = -1
+      if 'spleen' in str(dataset_folder):
+        slice_dim = 0
+    
+      slices = image.shape[slice_dim]
+      
       for slice_idx in range(slices):
         if len(image.shape) == 4:
           # 4D images (C, D, H, W)
@@ -85,8 +93,15 @@ def main(dataset_folder):
           #   input_slice = cv.resize(input_slice, (128, 128))
           #   label_slice = cv.resize(label_slice, (128, 128), interpolation=cv.INTER_NEAREST)
           # else:
-          input_slice = image[..., slice_idx]
-          label_slice = label[..., slice_idx]
+          if slice_dim == 0:
+            input_slice = image[slice_idx, ...]
+            label_slice = label[slice_idx, ...]
+          elif slice_dim == 1:
+            input_slice = image[:, slice_idx, :]
+            label_slice = label[:, slice_idx, :]
+          elif slice_dim == 2:
+            input_slice = image[..., slice_idx]
+            label_slice = label[..., slice_idx]
 
           if input_slice.shape != label_slice.shape:
             print(f'file: {image_file}')
@@ -95,16 +110,20 @@ def main(dataset_folder):
             continue
           max_value = np.percentile(input_slice[label_slice > 0.5], 99)
           min_value = np.percentile(input_slice[label_slice > 0.5], 1)
-          global_max = min(global_max, max_value)
-          global_min = max(global_min, min_value)
+          mask_max = min(mask_max, max_value)
+          mask_min = max(mask_min, min_value)
+          global_max = min(global_max, input_slice.max())
+          global_min = max(global_min, input_slice.min())
         else:
           raise ValueError(f'Invalid image shape: {image.shape}')
 
         np.save(input_dir / f'{case_name}_{slice_idx}.npy', input_slice)
         np.save(label_dir / f'{case_name}_{slice_idx}.npy', label_slice)
 
+  print(f'Mask max: {mask_max}')
+  print(f'Mask min: {mask_min}')
   print(f'Global max: {global_max}')
-  print(f'Global min: {global_min}')
+  print(f'global min: {global_min}')
 
 
 if __name__ == '__main__':

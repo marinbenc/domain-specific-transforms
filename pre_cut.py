@@ -8,9 +8,8 @@ import matplotlib.pyplot as plt
 
 import segmentation_models_pytorch as smp
 
-from kornia.losses import ssim_loss
-
 import utils
+# TODO: Remove
 from segmenters.grabcut_segmenter import GrabCutSegmenter
 from segmenters.cnn_segmenter import CNNSegmenter
 
@@ -18,18 +17,17 @@ def pre_cut_classification_loss(output, target):
   loss = F.binary_cross_entropy_with_logits(output['is_empty'], target.unsqueeze(-1))
   return loss
 
-def pre_cut_loss(output, target, threshold_loss_weight=5.0):
-  target_img, target_thresh, is_empty = target
-  output_img = output['img_stn']
-  output_thresh = output['threshold']
+def pre_cut_loss(output, target, threshold_loss_weight=1.0):
+  output_theta, target_theta = output['theta'], target['theta']
+  output_thresh, target_thresh = output['threshold'], target['threshold']
   th_loss = F.mse_loss(output_thresh, target_thresh)
-  img_loss = F.mse_loss(output_img, target_img)
-  return threshold_loss_weight * th_loss + img_loss
+  stn_loss = F.mse_loss(output_tensor, target_tensor)
+  return stn_loss + threshold_loss_weight * th_loss
 
 def get_unet(dataset, device, checkpoint=None):
   unet = smp.Unet('resnet18', in_channels=dataset.in_channels, classes=1, 
-                  activation=None, decoder_use_batchnorm=True,
-                  encoder_depth=3, decoder_channels=(128, 64, 16))
+                  activation='sigmoid', decoder_use_batchnorm=True)
+                  #encoder_depth=3, decoder_channels=(128, 64, 16))
   unet = unet.to(device)
   if checkpoint is not None:
     saved_unet = torch.load(checkpoint)
@@ -72,6 +70,10 @@ def get_model(segmentation_method, dataset, pretrained_unet=None, pretrained_pre
     model.loc_net.load_state_dict({k.replace('loc_net.', ''): v for k, v in saved_model.items() if k.startswith('loc_net')})
     model.thresh_head.load_state_dict({k.replace('thresh_head.', ''): v for k, v in saved_model.items() if k.startswith('thresh_head')})
     model.stn_head.load_state_dict({k.replace('stn_head.', ''): v for k, v in saved_model.items() if k.startswith('stn_head')})
+
+    # Freeze PreCut parameters if fine-tuning a segmentation model
+    for p in list(model.loc_net.parameters()) + list(model.thresh_head.parameters()) + list(model.stn_head.parameters()):
+      p.requires_grad = False
   model.to(device)
   return model
 
@@ -110,13 +112,16 @@ class PreCut(nn.Module):
       - 'img_th_stn': STN-transformed image (with thresholding)
       - 'seg': segmentation mask obtained with GrabCut
   """
-  def __init__(self, loc_net, input_size=128, threshold=True, stn_transform=True, segmentation_model=None):
+  def __init__(self, loc_net, input_size=512, threshold=True, stn_transform=True, segmentation_model=None):
       super(PreCut, self).__init__()
 
       self.threshold = threshold
       self.stn_transform = stn_transform
       self.segmentation_model = segmentation_model
       self.input_size = input_size
+
+      # TODO: Move this to a parameter in init, rename input_size to encoder_output_depth or something
+      self.input_size = loc_net._out_channels[loc_net._depth]
 
       # Spatial transformer localization-network
       self.loc_net = loc_net
@@ -166,7 +171,6 @@ class PreCut(nn.Module):
     xs = self.loc_net(x)[-1]
     xs = self.avg_pool(xs)
     xs = xs.view(-1, self.input_size * 4 * 4)
-
     is_empty  = self.is_empty_head(xs)
 
     # Threshold the image
@@ -186,7 +190,7 @@ class PreCut(nn.Module):
       theta = self.stn_head(xs)
       theta = theta.view(-1, 2, 3)
 
-      grid = F.affine_grid(theta, x.size(), align_corners=False)
+      grid = F.affine_grid(theta, x.size(), align_corners=True)
       x = F.grid_sample(x, grid, align_corners=True)
       mask = F.grid_sample(mask, grid, align_corners=True)
       if x_th is not None:
@@ -200,7 +204,10 @@ class PreCut(nn.Module):
 
     row = torch.tensor([0, 0, 1], dtype=theta.dtype, device=theta.device).expand(theta.shape[0], 1, 3)
     theta_sq = torch.cat([theta, row], dim=1)
-    theta_inv = torch.inverse(theta_sq)[:, :2, :]
+    try:
+      theta_inv = torch.inverse(theta_sq)[:, :2, :]
+    except:
+      theta_inv = torch.zeros_like(theta_sq)[:, :2, :]
     grid = F.affine_grid(theta_inv, x.size())
     mask = self.transform(mask, theta_inv, x.size())
 

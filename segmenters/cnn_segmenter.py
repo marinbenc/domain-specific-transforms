@@ -21,7 +21,9 @@ class DiceLoss(nn.Module):
   def forward(self, y_pred, y_true):
     if isinstance(y_pred, dict):
       y_pred = y_pred['seg']
-    y_pred = torch.sigmoid(y_pred)
+    if isinstance(y_true, dict):
+      y_true = y_true['seg']
+
     dscs = torch.zeros(y_pred.shape[1])
 
     for i in range(y_pred.shape[1]):
@@ -54,17 +56,15 @@ class CNNSegmenter(nn.Module):
         - 'theta_inv': the inverse of the 3 * 2 affine matrix output by the STN, with shape (batch_size, 3, 2)
       The output is a segmentation mask with shape (batch_size, 1, H, W), calculated with GrabCut.
   """
-  def __init__(self, padding, segmentation_model, sigmoid=False):
+  def __init__(self, padding, segmentation_model):
     super(CNNSegmenter, self).__init__()
     self.segmentation_model = segmentation_model
     self.padding = padding
-    self.sigmoid = sigmoid
 
   def forward(self, x):
     img, theta_inv = x['img_th_stn'], x['theta_inv']
     mask = self.segmentation_model(img)
     grid = F.affine_grid(theta_inv, mask.shape, align_corners=True)
     mask = F.grid_sample(mask, grid, align_corners=True)
-    if self.sigmoid:
-      mask = torch.sigmoid(mask)
+
     return mask

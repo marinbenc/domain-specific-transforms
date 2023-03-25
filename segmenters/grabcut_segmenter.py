@@ -49,18 +49,18 @@ class GrabCutSegmenter(nn.Module):
       # padding is in original image space, so scale it to the transformed image space
       scale_x, scale_y = theta_inv.squeeze()[0, 0].item(), theta_inv.squeeze()[1, 1].item()
       bbox = [
-        self.padding // 4 * scale_x, 
-        self.padding // 4 * scale_y, 
-        input.shape[1] - self.padding // 2 * scale_x, 
-        input.shape[0] - self.padding // 2 * scale_y]
+        self.padding * scale_x, 
+        self.padding * scale_y, 
+        input.shape[1] - self.padding * 2 * scale_x, 
+        input.shape[0] - self.padding * 2 * scale_y]
 
       if has_object and self._is_valid_bbox(bbox, input.shape):
         input = cv.cvtColor(input * 255,cv.COLOR_GRAY2RGB).astype(np.uint8)
 
         #print(bbox)
-        #plt.imshow(input)
-        #plt.gca().add_patch(plt.Rectangle((bbox[0], bbox[1]), bbox[2], bbox[3], fill=False, edgecolor='red', linewidth=2))
-        #plt.show()
+        plt.imshow(input)
+        plt.gca().add_patch(plt.Rectangle((bbox[0], bbox[1]), bbox[2], bbox[3], fill=False, edgecolor='red', linewidth=2))
+        plt.show()
 
         mask = np.zeros(input.shape[:2],np.uint8)
 

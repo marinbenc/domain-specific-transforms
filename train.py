@@ -53,56 +53,28 @@ def train(model_type, batch_size, epochs, lr, dataset, threshold_loss_weight, lo
 
   os.makedirs(log_dir, exist_ok=True)
 
-  train_datasets = []
-  losses = []
-  train_epochs = []
+  dataset_class = datasets.get_dataset_class(dataset)
+  train_dataset = pre_cut_dataset.PreCutDataset(dataset_class, pretraining=model_type == 'precut', directory='train')
+  valid_dataset = pre_cut_dataset.PreCutDataset(dataset_class, pretraining=model_type == 'precut', directory='valid')
 
-  if model_type == 'precut':
-    dataset_class = datasets.get_dataset_class(dataset)
-    train_dataset_transform = pre_cut_dataset.PreCutTransformDataset(dataset_class, augment=False, directory='train')
-    valid_dataset_transform = pre_cut_dataset.PreCutTransformDataset(dataset_class, augment=False, directory='valid')
+  train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, worker_init_fn=worker_init)
+  valid_loader = DataLoader(valid_dataset, worker_init_fn=worker_init)
 
-    train_dataset_class = pre_cut_dataset.PreCutClassificationDataset(dataset_class, augment=True, directory='train')
-    valid_dataset_class = pre_cut_dataset.PreCutClassificationDataset(dataset_class, augment=False, directory='valid')
+  if model_type == 'unet':
+    loss = cnn_seg.DiceLoss()
+  elif model_type == 'precut':
+    loss = functools.partial(pre_cut.pre_cut_loss, threshold_loss_weight=threshold_loss_weight)
+  elif model_type == 'precut_unet':
+    loss = cnn_seg.DiceLoss()
 
-    train_datasets.append((train_dataset_transform, valid_dataset_transform))
-    train_epochs.append(100)
-    losses.append(functools.partial(pre_cut.pre_cut_loss, threshold_loss_weight=threshold_loss_weight))
-
-    #train_datasets.append((train_dataset_class, valid_dataset_class))
-    #train_epochs.append(50)
-    #losses.append(pre_cut.pre_cut_classification_loss)
-
-  else:
-    train_dataset, valid_dataset = datasets.get_datasets(dataset, augment=True)
-    train_datasets.append((train_dataset, valid_dataset))
-    train_epochs.append(epochs)
-
-    def seg_loss(pred, target):
-      dice_loss = cnn_seg.DiceLoss()(pred, target)
-      pre_cut_loss = pre_cut.pre_cut_loss(pred, target, threshold_loss_weight=threshold_loss_weight)
-      return dice_loss * 0.1 + pre_cut_loss
-    losses.append(seg_loss)
-
-  model = get_model(model_type, log_dir, train_datasets[0][0], device)
-
-  for (train_dataset, valid_dataset), epochs, loss in zip(train_datasets, train_epochs, losses):
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, worker_init_fn=worker_init)
-    valid_loader = DataLoader(valid_dataset, worker_init_fn=worker_init)
+  model = get_model(model_type, log_dir, train_dataset, device)
     
-    optimizer = optim.Adam(model.parameters(), lr=lr)
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.1, patience=3, verbose=True, min_lr=1e-15, eps=1e-15)
+  optimizer = optim.Adam(model.parameters(), lr=lr)
+  scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.1, patience=3, verbose=True, min_lr=1e-15, eps=1e-15)
         
-    trainer = utils.Trainer(model, optimizer, loss, train_loader, valid_loader, 
-                            log_dir=log_dir, checkpoint_name=f'{model_type}_best.pth', scheduler=scheduler)
-    trainer.train(epochs)
-
-    for parameter in model.loc_net.parameters():
-      parameter.requires_grad = False
-    for parameter in model.stn_head.parameters():
-      parameter.requires_grad = False
-    for parameter in model.thresh_head.parameters():
-      parameter.requires_grad = False
+  trainer = utils.Trainer(model, optimizer, loss, train_loader, valid_loader, 
+                          log_dir=log_dir, checkpoint_name=f'{model_type}_best.pth', scheduler=scheduler)
+  trainer.train(epochs)
 
 if __name__ == '__main__':
   parser = argparse.ArgumentParser(
@@ -114,11 +86,11 @@ if __name__ == '__main__':
     and for --model-type precut_unet, the segmentation U-Net will also be pretrained with the stored checkpoint.
 
     The recommended use is to first train a plain U-Net model (on strong labels), then train a 
-    PreCut model using the same log-name. From there, you can generate weak labels or fine-tune a
-    combined model as needed. Without any pretraining there is a chance the STN will not converge,
+    PreCut model using the same log-name. From there, you can fine-tune a
+    combined model. Without any pretraining there is a chance the STN will not converge,
     or at least not as fast.
 
-    For training PreCut preprocessing (for generating weak labels) use --model-type precut.
+    For pre-training PreCut preprocessing use --model-type precut.
     For training a combined PreCut and U-Net model (for fine-tuning on strong labels) use --model-type precut_unet.
     To train a plain U-Net model (for transfer learning) use --model-type unet.
     """,
@@ -126,7 +98,11 @@ if __name__ == '__main__':
   )
   parser.add_argument(
     '--model-type', type=str, choices=['precut', 'precut_unet', 'unet'], default='precut', 
-    help='The type of model to train: precut - PreCut preprocessing; precut_unet - a combined PreCut and U-Net model; unet - just a U-Net.'
+    help=
+    """The type of model to train: 
+      precut - PreCut preprocessing; 
+      precut_unet - a combined PreCut and U-Net model (with frozen PreCut weights);
+      unet - just a U-Net."""
   )
   parser.add_argument(
     '--batch-size',
@@ -152,8 +128,8 @@ if __name__ == '__main__':
   parser.add_argument(
     '--threshold-loss-weight',
     type=float,
-    default=5.,
-    help='the weight to be applied to the threshold loss term of the PreCut loss function',
+    default=1.,
+    help='the weight to be applied to the threshold loss term of the PreCut loss function when model type is precut',
   )
   parser.add_argument(
     '--log-name', type=str, default=datetime.datetime.now().strftime("%Y-%m-%d-%H:%M:%S"), help='name of folder where models are saved',

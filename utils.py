@@ -17,7 +17,10 @@ from medpy.metric.binary import recall as mp_recall
 from medpy.metric.binary import dc
 
 import torchvision.transforms.functional as F
+import torch.nn.functional as nnF
 import kornia as K
+
+import skimage.transform as skt
 
 import PIL
 from PIL import Image
@@ -58,6 +61,36 @@ def itn_transform_lesion(img):
 
   return img
 
+def get_affine_from_bbox(x, y, w, h, size):
+  """
+  Returns an affine transformation matrix in OpenCV-expected format that
+  will crop the image to the bounding box.
+  """
+  scale_x = size / w
+  scale_y = size / h
+  M = np.array([[scale_x, 0, -x * scale_x], [0, scale_y, -y * scale_y]])
+  return M
+
+def get_theta_from_bbox(x, y, w, h, size):
+  """
+  Returns an affine transformation matrix in PyTorch-expected format that 
+  will crop the image to the bounding box.
+  """
+  scale_x = size / w
+  scale_y = size / h
+
+  x_t = (x + w / 2) / size * 2 - 1
+  y_t = (y + h / 2) / size * 2 - 1
+
+  theta = np.array([[1 / scale_x, 0, x_t], [0, 1 / scale_y, y_t]], dtype=np.float32)
+  return theta
+
+def transform_keypoints(kps, meta, invert=False):
+    keypoints = kps.copy()
+    if invert:
+        meta = np.linalg.inv(meta)
+    keypoints[:, :2] = np.dot(keypoints[:, :2], meta[:2, :2].T) + meta[:2, 2]
+    return keypoints
 
 def crop_to_label(input, label, padding=32, bbox_aug=0):
   """ 
@@ -87,28 +120,18 @@ def crop_to_label(input, label, padding=32, bbox_aug=0):
     w += augs[2]
     h += augs[3]
 
-  x = max(0, x - padding)
-  y = max(0, y - padding)
-  w = min(w + 2 * padding, label_th.shape[1] - x)
-  h = min(h + 2 * padding, label_th.shape[0] - y)
+  x -= padding
+  y -= padding
+  w += 2 * padding
+  h += 2 * padding
 
-  if len(input.shape) == 2:
-    input_cropped = input[y:y+h, x:x+w].copy()
-  else:
-    input_cropped = input[y:y+h, x:x+w, :].copy()
-  label_cropped = label[y:y+h, x:x+w]
+  theta = get_theta_from_bbox(x, y, w, h, size=original_size[0])
+  M = get_affine_from_bbox(x, y, w, h, size=original_size[0])
 
-  padding_left = max(0, padding - x)
-  padding_right = max(0, padding - (original_size[1] - (x + w)))
-  padding_top = max(0, padding - y)
-  padding_bottom = max(0, padding - (original_size[0] - (y + h)))
+  input_cropped = cv.warpAffine(input, M, original_size, flags=cv.INTER_LINEAR)
+  label_cropped = cv.warpAffine(label, M, original_size, flags=cv.INTER_NEAREST)
 
-  input_cropped = cv.copyMakeBorder(input_cropped, padding_top, padding_bottom, padding_left, padding_right, cv.BORDER_CONSTANT, value=0)
-  label_cropped = cv.copyMakeBorder(label_cropped, padding_top, padding_bottom, padding_left, padding_right, cv.BORDER_CONSTANT, value=0)
-
-  input_cropped = cv.resize(input_cropped, original_size, interpolation=cv.INTER_LINEAR)
-  label_cropped = np.array(Image.fromarray(label_cropped).resize(original_size, resample=PIL.Image.NEAREST))
-  return input_cropped, label_cropped
+  return input_cropped, label_cropped, theta
 
 def save_args(args, folder):
     args_file = os.path.join(os.path.dirname(__file__), 'runs', args.log_name, folder, 'args.json')
@@ -249,11 +272,11 @@ class Trainer:
       print('Early stopping')
       return True
     
+    # if (epoch) % 20 == 0:
+    #   show_torch(imgs=[input[0][0], output['img_stn'][0], target['img_stn'][0]])
+
     self.epochs_since_best += 1
     return False
-
-    #if (epoch - 1) % 10 == 0:
-    #  show_torch(imgs=[input[0][0], output['img_stn'][0][0], target[0][0]])
 
   def get_input(self, batch):
     """Convert data loader output to input of the model"""
