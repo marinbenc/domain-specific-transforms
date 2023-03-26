@@ -102,12 +102,10 @@ def calculate_metrics(ys_pred, ys, metrics, subjects=None):
 
   return df
 
-def test(model_type, dataset, log_name, dataset_folder, transforms, save_predictions, viz):
-  dataset_class = data.get_dataset_class(dataset)
-  train_dataset = pre_cut_dataset.PreCutTransformDataset(dataset_class, pretraining=False, directory='train')
-  valid_dataset = pre_cut_dataset.PreCutTransformDataset(dataset_class, pretraining=False, directory='valid')
-  test_dataset = pre_cut_dataset.PreCutTransformDataset(dataset_class, pretraining=False, directory='test')
-  whole_dataset = pre_cut_dataset.PreCutTransformDataset(dataset_class, pretraining=False, directory='all')
+def test(model_type, dataset, log_name, dataset_folder, save_predictions, viz):
+  train_dataset, valid_dataset = data.get_datasets(dataset)
+  whole_dataset = data.get_whole_dataset(dataset)
+  test_dataset = data.get_test_dataset(dataset)
 
   if dataset_folder == 'train':
     test_dataset = train_dataset
@@ -138,8 +136,8 @@ def test(model_type, dataset, log_name, dataset_folder, transforms, save_predict
     'prec': utils.precision,
     'rec': utils.recall,
   }
-  df = calculate_metrics(ys, ys_pred, metrics, subjects=test_dataset.subjects)
-  if test_dataset.subjects is not None:
+  df = calculate_metrics(ys, ys_pred, metrics, subjects=test_dataset.subject_id_for_idx)
+  if test_dataset.subject_id_for_idx is not None:
     df = df.groupby('subject').mean()
 
   print(df.describe())
@@ -162,7 +160,6 @@ if __name__ == '__main__':
     parser.add_argument(
         '--log-name', type=str, required=True, help='name of folder where checkpoints are stored',
     )
-    parser.add_argument('--transforms', default=[], nargs='*', help='list of transformations for preprocessing; possible values: stn, itn')
     parser.add_argument(
         '--save-predictions', action='store_true', help="save predicted images in the predictions/ folder"
     )

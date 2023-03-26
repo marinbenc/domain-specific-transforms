@@ -75,7 +75,7 @@ def get_bbox(input, label, padding=32, bbox_aug=0):
 
   return x, y, w, h
 
-def get_optimal_threshold(self, image, mask, th_padding=0, th_aug=0):
+def get_optimal_threshold(image, mask, th_padding=0, th_aug=0):
   """
   Returns the optimal window for the given image and mask.
   If the mask is empty, returns (min(scan), min(scan)).
@@ -113,6 +113,7 @@ def WeakSupervisionDataset(pre_cut_dataset, labeled_percent=0.1):
   Returns:
     (labeled_dataset: PreCutDataset, unlabeled_dataset: BaseDataset)
   """
+  # TODO: This no longer works.
   all_files = pre_cut_dataset.file_names
   np.random.seed(2022)
   np.random.shuffle(all_files)
@@ -131,34 +132,48 @@ def WeakSupervisionDataset(pre_cut_dataset, labeled_percent=0.1):
   return labeled_dataset, unlabeled_dataset
 
 class PreCutDataset(Dataset):
-  # TODO: Make CTDataset and others inherit from this instead of wrapping a dataset.
   """
   A dataset that wraps another dataset to be used by the PreCut thresholding + STN branches.
-  The output of this dataset is a tuple of (input, (input_stn, th)), where
-  input_stn is the input image transformed by the STN, and th is the
-  optimal threshold for the input image.
+  This is an abstract class that should be inherited from.
 
-  Note:
-    Empty slices are removed from the dataset.
+  The output of this dataset is a tuple of (input, output_dict) where output_dict has the
+  following keys:
+
+    - img_th: The thresholded image.
+    - img_th_stn: The thresholded image warped by the STN.
+    - seg: The segmentation mask in the original image space.
+    - theta: The affine transformation matrix used to warp the image.
+    - threshold: The threshold used to threshold the image.
+  
+  If pretraining is True, `img_th` and `img_th_stn` will be `None`.
+
+  Required methods for subclasses:
+    - `__len__(self)` should return the length of the dataset.
+    - `get_item_np(self, idx, augmentation)` should return a tuple of (input, label) of numpy arrays for a given index.
+      - `augmentation` is an Albumentations callable transform or `None`.
+    - `get_train_augmentation(self)` should return an Albumentations callable transform for training or `None`.
 
   Attributes:
-    wrapped_dataset_class: The dataset to wrap.
-    **dataset_kwargs: The arguments to pass to the dataset.
-    pretraining: Whether to use the pretraining dataset. The pretraining dataset
-      removes empty slices and uses heavy augmentation to pre-train the STN and
-      thresholding branches.
+    subset: The subset of the dataset to use. One of 'train', 'valid', 'test'.
+    pretraining: Whether to use the dataset for pretraining or not. If True, `img_th` and `img_th_stn` 
+                 will be `None`. In addition, the dataset will be augmented more heavily and empty 
+                 slices will be removed.
+    in_channels: The number of input channels.
+    out_channels: The number of output channels.
+    size: The size of the input images (single float). Images are assumed to be square.
+    padding: The padding to add to the STN transform.
+    th_padding: The padding to add to the threshold.
   """
-  def __init__(self, wrapped_dataset_class, pretraining, **dataset_kwargs):
-    self.wrapped_dataset = wrapped_dataset_class(transforms=[], augment=pretraining, **dataset_kwargs)
-    self.in_channels = self.wrapped_dataset.in_channels
-    self.out_channels = self.wrapped_dataset.out_channels
-    self.width = self.wrapped_dataset.width
-    self.padding = self.wrapped_dataset.padding
-    self.subjects = self.wrapped_dataset.subjects
+  def __init__(self, subset, pretraining, in_channels, out_channels, width, padding, th_padding):
+    self.in_channels = in_channels
+    self.out_channels = out_channels
+    self.width = width
+    self.padding = padding
     self.pretraining = pretraining
-    self.th_padding = self.wrapped_dataset.th_padding
+    self.th_padding = th_padding
     self.th_aug = 0.05 if pretraining else 0
     self.bbox_aug = self.padding // 2 if pretraining else 0
+    self.subset = subset
 
     if pretraining:
       # Remove empty slices for pretraining
@@ -177,8 +192,14 @@ class PreCutDataset(Dataset):
       self.wrapped_dataset.file_names = new_filenames
       self.wrapped_dataset_th_stn.file_names = new_filenames
       self.wrapped_dataset_stn.file_names = new_filenames
+  
+  def get_item_np(self, idx, augmentation):
+    raise NotImplementedError
+  
+  def get_train_augmentation(self):
+    raise NotImplementedError
 
-  def get_augmentation_pretraining(self):
+  def _get_augmentation_pretraining(self):
     return A.Compose([
       A.HorizontalFlip(p=0.5),
       A.GridDistortion(p=0.5),
@@ -186,11 +207,8 @@ class PreCutDataset(Dataset):
       # TODO: Try brightness / contrast / gamma
     ])
   
-  def __len__(self):
-    return len(self.wrapped_dataset)
-
   def __getitem__(self, idx):
-    input, label = self.wrapped_dataset.get_item_np(idx)
+    input, label = self.get_item_np(idx, augmentation=self.get_train_augmentation() if self.subset == 'train' else None)
     original_size = input.shape[:2]
 
     assert input.shape[0] == input.shape[1], 'Input must be square.'
@@ -206,32 +224,33 @@ class PreCutDataset(Dataset):
     to_tensor = ToTensorV2()
 
     if self.pretraining:
-      augmentation = self.get_augmentation_pretraining()
+      augmentation = self._get_augmentation_pretraining()
       transformed = augmentation(image=input, mask=label)
       input, label = transformed['image'], transformed['mask']
     
-    output_dict['seg'] = to_tensor(label)
-    input_tensor = to_tensor(input)
+    input_tensor, label_tensor = to_tensor(image=input, mask=label).values()
+    input_tensor = input_tensor.float()
+    output_dict['seg'] = label_tensor
 
     x, y, w, h = get_bbox(input, label, padding=self.padding, bbox_aug=self.bbox_aug)
     theta = get_theta_from_bbox(x, y, w, h, size=original_size[0])
     output_dict['theta'] = torch.from_numpy(theta)
 
-    threshold = get_optimal_threshold(input, label, th_padding=self.th_padding, aug=self.th_aug)
-    output_dict['threshold'] = torch.from_numpy(threshold)
+    threshold = get_optimal_threshold(input, label, th_padding=self.th_padding, th_aug=self.th_aug)
+    output_dict['threshold'] = torch.tensor(threshold)
 
     if not self.pretraining:
       # Pretraining loss does not use the images, so skip the transformations to save time.
       M = get_affine_from_bbox(x, y, w, h, original_size[0])
       input_cropped = cv.warpAffine(input, M, original_size, flags=cv.INTER_LINEAR)
       label_cropped = cv.warpAffine(label, M, original_size, flags=cv.INTER_NEAREST)
-      output_dict['img_stn'] = input_cropped
+      output_dict['img_stn'] = to_tensor(image=input_cropped)['image']
 
       input_th_stn = input_cropped.copy()
       low, high = threshold
       input_th_stn[input_th_stn < low] = 0
       input_th_stn[input_th_stn > high] = 0
-      output_dict['img_th_stn'] = to_tensor(input_th_stn)
+      output_dict['img_th_stn'] = to_tensor(image=input_th_stn)['image']
 
       # utils.show_torch(imgs=[input, input_stn, input_th_stn])
     

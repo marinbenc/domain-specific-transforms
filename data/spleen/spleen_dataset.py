@@ -1,20 +1,14 @@
-import data.ct_dataset as ct_dataset
+import data.slice_dataset as slice_dataset
 
-class SpleenDataset(ct_dataset.CTDataset):
-  dataset_folder = 'spleen'
-
-  WINDOW_MAX = -100
-  WINDOW_MIN = 150
-  GLOBAL_PIXEL_MEAN = 0.1
-
-  GLOBAL_MIN = -1024
-  GLOBAL_MAX = 1024
-
-  in_channels = 1
-  out_channels = 1
-
-  width = 512
-  height = 512
-
-  padding = 16
-  th_aug = 0.05
+def SpleenDataset(subset, pretraining):
+  return slice_dataset.SliceDataset(
+    subset=subset,
+    pretraining=pretraining,
+    dataset_folder='spleen',
+    window_max=-100,
+    window_min=150,
+    global_min=-1024,
+    global_max=1024,
+    size=512,
+    padding=8,
+  )
