@@ -92,40 +92,15 @@ class CTDataset(base_dataset.BaseDataset):
     #scan[scan > self.GLOBAL_MAX] = self.GLOBAL_MIN
 
     scan = scan.astype(np.float)
-
-    # TODO: Move this to PreCutDataset
-    if 'th' in self.transforms:
-      low, high = self.get_optimal_threshold(scan, mask, self.th_padding)
-      self.WINDOW_MAX = high
-      self.WINDOW_MIN = low
-
-      if self.augment and self.mode == 'train' and self.th_aug > 0:
-        window_width = self.WINDOW_MAX - self.WINDOW_MIN
-        aug_range = window_width * self.th_aug
-        self.WINDOW_MAX += np.random.randint(-aug_range, aug_range)
-        self.WINDOW_MIN += np.random.randint(-aug_range, aug_range)
-
-      # window input slice
-      scan[scan > self.WINDOW_MAX] = self.WINDOW_MIN
-      scan[scan < self.WINDOW_MIN] = self.WINDOW_MIN
-
-      # normalize
-      scan = (scan - self.WINDOW_MIN) / (self.WINDOW_MAX - self.WINDOW_MIN)
-    else:
-      scan = (scan - self.GLOBAL_MIN) / (self.GLOBAL_MAX - self.GLOBAL_MIN)
+    # normalize
+    scan = (scan - self.GLOBAL_MIN) / (self.GLOBAL_MAX - self.GLOBAL_MIN)
 
     if augmentation is not None:
       transformed = augmentation(image=scan, mask=mask)
       scan = transformed['image']
       mask = transformed['mask']
 
-    theta_tensor = None
-    if 'stn' in self.transforms:
-      # TODO: Make bbox_aug a command line argument
-      bbox_aug = self.padding // 2 if self.augment and self.mode == 'train' else 0
-      scan, mask, theta_tensor = utils.crop_to_label(scan, mask, bbox_aug=bbox_aug, padding=self.padding)
-
-    return scan, mask, theta_tensor
+    return scan, mask
 
   def __len__(self):
     return len(self.file_names)

@@ -51,6 +51,8 @@ def train(model_type, batch_size, epochs, lr, dataset, threshold_loss_weight, lo
   def worker_init(worker_id):
     np.random.seed(2022 + worker_id)
 
+  # TODO: Add support for cross-validation
+
   os.makedirs(log_dir, exist_ok=True)
 
   dataset_class = datasets.get_dataset_class(dataset)
