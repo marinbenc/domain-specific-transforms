@@ -12,6 +12,10 @@ import albumentations as A
 from albumentations.pytorch.transforms import ToTensorV2
 import utils
 
+# TODO: Remove temp imports
+import torch.nn.functional as F
+import torch.nn as nn
+
 def get_affine_from_bbox(x, y, w, h, size):
   """
   Returns an affine transformation matrix in OpenCV-expected format that
@@ -89,17 +93,24 @@ def get_optimal_threshold(image, mask, th_padding=0, th_aug=0):
     (low, high): The min and max values for the window.
   """
   # TODO: Add support for RGB images
-  if np.sum(image) == 0:
+  if np.sum(mask) == 0:
     return image.min(), image.min()
   roi = image[mask > 0]
   # TODO: Investigate this. Or use blur?
-  high = np.percentile(roi, 99) + th_padding
-  low = np.percentile(roi, 1) - th_padding
+  high = np.percentile(roi, 99)
+  low = np.percentile(roi, 1)
+
+  window_width = high - low
+  padding_value = window_width * th_padding
+  low -= padding_value
+  high += padding_value
+
   if th_aug > 0:
-    th_aug_max = (high - low) * th_aug
-    augs = np.random.randint(-th_aug_max, th_aug_max, size=2)
+    th_aug_max = window_width * th_aug
+    augs = np.random.uniform(-th_aug_max, th_aug_max, size=2)
     low += augs[0]
     high += augs[1]
+  
   return low, high
 
 def WeakSupervisionDataset(pre_cut_dataset, labeled_percent=0.1):
@@ -164,7 +175,7 @@ class PreCutDataset(Dataset):
     padding: The padding to add to the STN transform.
     th_padding: The padding to add to the threshold.
   """
-  def __init__(self, subset, pretraining, in_channels, out_channels, width, padding, th_padding):
+  def __init__(self, subset, pretraining, in_channels, out_channels, width, padding, th_padding, augment):
     self.in_channels = in_channels
     self.out_channels = out_channels
     self.width = width
@@ -174,24 +185,7 @@ class PreCutDataset(Dataset):
     self.th_aug = 0.05 if pretraining else 0
     self.bbox_aug = self.padding // 2 if pretraining else 0
     self.subset = subset
-
-    if pretraining:
-      # Remove empty slices for pretraining
-      total_before_removal = len(self.wrapped_dataset)
-      to_remove = []
-
-      for idx in range(len(self.wrapped_dataset)):
-        input, label, _ = self.wrapped_dataset.get_item_np(idx)
-        if np.sum(label) < 5:
-          to_remove.append(idx)
-      
-      print(f'Removing {len(to_remove)} empty slices out of {total_before_removal}.')
-      new_filenames = np.array(self.wrapped_dataset.file_names)
-      new_filenames = np.delete(new_filenames, to_remove).tolist()
-
-      self.wrapped_dataset.file_names = new_filenames
-      self.wrapped_dataset_th_stn.file_names = new_filenames
-      self.wrapped_dataset_stn.file_names = new_filenames
+    self.augment = augment
   
   def get_item_np(self, idx, augmentation):
     raise NotImplementedError
@@ -201,14 +195,14 @@ class PreCutDataset(Dataset):
 
   def _get_augmentation_pretraining(self):
     return A.Compose([
-      A.HorizontalFlip(p=0.5),
-      A.GridDistortion(p=0.5),
-      A.ShiftScaleRotate(p=0.5, rotate_limit=15, scale_limit=0.15, shift_limit=0.15, border_mode=cv.BORDER_CONSTANT, value=0),
+      #A.HorizontalFlip(p=0.5),
+      #A.GridDistortion(p=0.75),
+      #A.ShiftScaleRotate(p=0.75, rotate_limit=15, scale_limit=0.15, shift_limit=0.15),
       # TODO: Try brightness / contrast / gamma
     ])
   
   def __getitem__(self, idx):
-    input, label = self.get_item_np(idx, augmentation=self.get_train_augmentation() if self.subset == 'train' else None)
+    input, label = self.get_item_np(idx, augmentation=self.get_train_augmentation() if self.augment else None)
     original_size = input.shape[:2]
 
     assert input.shape[0] == input.shape[1], 'Input must be square.'
@@ -227,17 +221,17 @@ class PreCutDataset(Dataset):
       augmentation = self._get_augmentation_pretraining()
       transformed = augmentation(image=input, mask=label)
       input, label = transformed['image'], transformed['mask']
-    
+        
     input_tensor, label_tensor = to_tensor(image=input, mask=label).values()
     input_tensor = input_tensor.float()
-    output_dict['seg'] = label_tensor
+    output_dict['seg'] = label_tensor.unsqueeze(0).float()
 
     x, y, w, h = get_bbox(input, label, padding=self.padding, bbox_aug=self.bbox_aug)
     theta = get_theta_from_bbox(x, y, w, h, size=original_size[0])
     output_dict['theta'] = torch.from_numpy(theta)
 
     threshold = get_optimal_threshold(input, label, th_padding=self.th_padding, th_aug=self.th_aug)
-    output_dict['threshold'] = torch.tensor(threshold)
+    output_dict['threshold'] = torch.tensor(threshold).float()
 
     if not self.pretraining:
       # Pretraining loss does not use the images, so skip the transformations to save time.
@@ -248,10 +242,26 @@ class PreCutDataset(Dataset):
 
       input_th_stn = input_cropped.copy()
       low, high = threshold
-      input_th_stn[input_th_stn < low] = 0
-      input_th_stn[input_th_stn > high] = 0
+      input_th_stn[input_th_stn < low] = low
+      input_th_stn[input_th_stn > high] = low
+      input_th_stn = (input_th_stn - low) / (high - low + 1e-8)
       output_dict['img_th_stn'] = to_tensor(image=input_th_stn)['image']
 
-      # utils.show_torch(imgs=[input, input_stn, input_th_stn])
+      #utils.show_images_row([input, input_cropped, input_th_stn])
     
+    # print(output_dict['theta'].numpy())
+    
+    # test viz
+    # grid = F.affine_grid(output_dict['theta'].unsqueeze(0), input_tensor.unsqueeze(0).size(), align_corners=True)
+    # x = F.grid_sample(input_tensor.unsqueeze(0), grid, align_corners=True)[0]
+    # mask = F.grid_sample(output_dict['seg'].unsqueeze(0), grid, align_corners=True)[0]
+    # plt.imshow(x[0].numpy())
+    # plt.show()
+    # plt.imshow(mask[0].numpy())
+    # plt.show()
+
+
+
+    # delete None values
+    output_dict = {k: v for k, v in output_dict.items() if v is not None}
     return input_tensor, output_dict

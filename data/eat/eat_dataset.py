@@ -27,7 +27,7 @@ class EATDataset(base_dataset.BaseDataset):
 
   def get_train_transforms(self):
     return A.Compose([
-      #A.HorizontalFlip(p=0.5),
+      A.HorizontalFlip(p=0.5),
       A.ShiftScaleRotate(p=0.5, rotate_limit=35, scale_limit=0.15, shift_limit=0.15),
       # elastic transform
       A.GridDistortion(p=0.5, num_steps=5, distort_limit=0.3),
@@ -60,8 +60,6 @@ class EATDataset(base_dataset.BaseDataset):
       input = transformed['image']
       label = transformed['mask']
     
-    # TODO: Refactor, this is similar to the lesion dataset
-
     if 'stn' in self.transforms:
       bbox_aug = 32 if self.augment and self.mode == 'train' else 0
       input, label = utils.crop_to_label(input, label, bbox_aug=bbox_aug)

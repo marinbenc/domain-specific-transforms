@@ -14,7 +14,7 @@ def get_dataset_class(dataset_name):
 def get_datasets(dataset, pretraining=False):
   dataset_class = get_dataset_class(dataset)
   train_dataset = dataset_class(subset='train', pretraining=pretraining)
-  val_dataset = dataset_class(subset='valid', pretraining=False)
+  val_dataset = dataset_class(subset='valid', pretraining=True)
   return train_dataset, val_dataset
 
 def get_whole_dataset(dataset, pretraining=False):

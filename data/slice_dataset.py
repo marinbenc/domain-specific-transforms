@@ -28,8 +28,8 @@ class SliceDataset(pre_cut_dataset.PreCutDataset):
   """
   # TODO: Add support for cross validation. subjects is currently ignored.
   def __init__(self, subset, pretraining, size, dataset_folder, global_max, global_min,
-                window_max, window_min, in_channels=1, out_channels=1, padding=8, th_padding=10, subjects=None):
-    super().__init__(subset, pretraining, in_channels, out_channels, size, padding, th_padding)
+                window_max, window_min, in_channels=1, out_channels=1, padding=8, th_padding=0.05, subjects=None, augment=False):
+    super().__init__(subset, pretraining, in_channels, out_channels, size, padding, th_padding, augment)
     self.dataset_folder = dataset_folder
     self.GLOBAL_MAX = global_max
     self.GLOBAL_MIN = global_min
@@ -53,10 +53,26 @@ class SliceDataset(pre_cut_dataset.PreCutDataset):
       self.file_names += directory_files
       self.file_names.sort()
     
+    if pretraining:
+      # Remove empty slices for pretraining
+      total_before_removal = len(self.file_names)
+      to_remove = []
+
+      for idx in range(len(self.file_names)):
+        input, label = self.get_item_np(idx)
+        if np.sum(label) < 5:
+          to_remove.append(idx)
+      
+      print(f'Removing {len(to_remove)} empty slices out of {total_before_removal}.')
+      new_filenames = np.array(self.file_names)
+      new_filenames = np.delete(new_filenames, to_remove).tolist()
+      self.file_names = new_filenames
+
     if subjects is not None:
       self.file_names = [f for f in self.file_names if self._get_subject_from_file_name(f) in subjects]
     
     self.subject_id_for_idx = [self._get_subject_from_file_name(f) for f in self.file_names]
+    self.subjects = subjects if subjects is not None else set(self.subject_id_for_idx)
   
   def _get_subject_from_file_name(self, file_name):
     return '_'.join(file_name.split('/')[-1].split('_')[:-1])
@@ -80,8 +96,9 @@ class SliceDataset(pre_cut_dataset.PreCutDataset):
       scan = scan[..., 0]
     mask = np.load(current_slice_file)
     # Just use single class. TODO: Add multi-class support?
-    mask[mask > 0.5] = 1
-
+    if len(mask.shape) == 3 and mask.shape[0] > 1:
+      mask = mask[0, ...]
+    
     scan[scan < self.GLOBAL_MIN] = self.GLOBAL_MIN
     scan[scan > self.GLOBAL_MAX] = self.GLOBAL_MAX
 

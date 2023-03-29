@@ -13,22 +13,18 @@ import utils
 from segmenters.grabcut_segmenter import GrabCutSegmenter
 from segmenters.cnn_segmenter import CNNSegmenter
 
-def pre_cut_classification_loss(output, target):
-  loss = F.binary_cross_entropy_with_logits(output['is_empty'], target.unsqueeze(-1))
-  return loss
-
 def pre_cut_loss(output, target, threshold_loss_weight=1.0):
   output_theta, target_theta = output['theta'], target['theta']
   output_thresh, target_thresh = output['threshold'], target['threshold']
   th_loss = F.mse_loss(output_thresh, target_thresh)
-  stn_loss = F.mse_loss(output_tensor, target_tensor)
+  stn_loss = F.l1_loss(output_theta, target_theta)
   return stn_loss + threshold_loss_weight * th_loss
 
 def get_unet(dataset, device, checkpoint=None):
   unet = smp.Unet('resnet18', in_channels=dataset.in_channels, classes=1, 
-                  activation='sigmoid', decoder_use_batchnorm=True,
+                  activation='sigmoid', decoder_use_batchnorm=True)
                   # TODO: Check if smaller model is better
-                  encoder_depth=3, decoder_channels=(128, 64, 16))
+                  #encoder_depth=3, decoder_channels=(128, 64, 16))
   unet = unet.to(device)
   if checkpoint is not None:
     saved_unet = torch.load(checkpoint)
@@ -39,7 +35,7 @@ def _get_unet_loc_net(dataset, device, checkpoint=None):
   unet = get_unet(dataset, device, checkpoint)
   return unet.encoder
 
-def get_model(segmentation_method, dataset, pretrained_unet=None, pretrained_precut=None, device='cuda', **segmenter_kwargs):
+def get_model(segmentation_method, dataset, pretrained_unet=None, pretrained_precut=None, pretraining=False, device='cuda', **segmenter_kwargs):
   """
   Returns a PreCut model with the specified segmentation method.
 
@@ -62,8 +58,7 @@ def get_model(segmentation_method, dataset, pretrained_unet=None, pretrained_pre
   else:
     raise ValueError(f'Invalid segmentation method: {segmentation_method}')
   
-  # TODO: Rename dataset.width to dataset.size or similar
-  model = PreCut(loc_net=loc_net, segmentation_model=segmentation_model, input_size=dataset.width)
+  model = PreCut(loc_net=loc_net, segmentation_model=segmentation_model, pretraining=pretraining)
   if pretrained_precut is not None:
     print('Pretraining PreCut...')
     saved_model = torch.load(pretrained_precut)
@@ -113,16 +108,14 @@ class PreCut(nn.Module):
       - 'img_th_stn': STN-transformed image (with thresholding)
       - 'seg': segmentation mask obtained with GrabCut
   """
-  def __init__(self, loc_net, input_size=512, threshold=True, stn_transform=True, segmentation_model=None):
+  def __init__(self, loc_net, pretraining=False, segmentation_model=None):
       super(PreCut, self).__init__()
 
-      self.threshold = threshold
-      self.stn_transform = stn_transform
       self.segmentation_model = segmentation_model
-      self.input_size = input_size
+      self.pretraining = pretraining
 
-      # TODO: Move this to a parameter in init, rename input_size to encoder_output_depth or something
-      self.input_size = loc_net._out_channels[loc_net._depth]
+      # TODO: Move this to a parameter in init
+      self.encoder_output_size = loc_net._out_channels[loc_net._depth]
 
       # Spatial transformer localization-network
       self.loc_net = loc_net
@@ -130,7 +123,7 @@ class PreCut(nn.Module):
 
       # Regressor for the threshold
       self.thresh_head = nn.Sequential(
-        nn.Linear(self.input_size * 4 * 4, 128),
+        nn.Linear(self.encoder_output_size * 4 * 4, 128),
         nn.ReLU(True),
         nn.Linear(128, 2)
       )
@@ -141,7 +134,7 @@ class PreCut(nn.Module):
 
       # Regressor for the 3 * 2 affine matrix
       self.stn_head = nn.Sequential(
-        nn.Linear(self.input_size * 4 * 4, 128),
+        nn.Linear(self.encoder_output_size * 4 * 4, 128),
         nn.ReLU(True),
         nn.Linear(128, 3 * 2)
       )
@@ -149,13 +142,6 @@ class PreCut(nn.Module):
       # Initialize to identity transformation
       self.stn_head[-1].weight.data.zero_()
       self.stn_head[-1].bias.data.copy_(torch.tensor([1, 0, 0, 0, 1, 0], dtype=torch.float))
-
-      # Regressor for the empty slice classification
-      self.is_empty_head = nn.Sequential(
-        nn.Linear(self.input_size * 4 * 4, 128),
-        nn.ReLU(True),
-        nn.Linear(128, 1)
-      )
 
   def transform(self, x, theta, size):
     grid = F.affine_grid(theta, size, align_corners=True)
@@ -171,35 +157,33 @@ class PreCut(nn.Module):
   def forward(self, x):
     xs = self.loc_net(x)[-1]
     xs = self.avg_pool(xs)
-    xs = xs.view(-1, self.input_size * 4 * 4)
-    is_empty  = self.is_empty_head(xs)
+    xs = xs.view(-1, self.encoder_output_size * 4 * 4)
+
+    threshold = self.thresh_head(xs)
+    th_low = threshold[:, 0].view(-1, 1, 1, 1)
+    th_high = threshold[:, 1].view(-1, 1, 1, 1)
 
     # Threshold the image
-    if self.threshold:
-      threshold = self.thresh_head(xs)
-      th_low = threshold[:, 0].view(-1, 1, 1, 1)
-      th_high = threshold[:, 1].view(-1, 1, 1, 1)
+    if not self.pretraining:
       mask = self.smooth_threshold(x, th_low, th_high)
       x_th = x * mask
     else:
       x_th = None
-      threshold = None
     
     # Spatial transformer
 
-    if self.stn_transform:
-      theta = self.stn_head(xs)
-      theta = theta.view(-1, 2, 3)
+    theta = self.stn_head(xs)
+    theta = theta.view(-1, 2, 3)
 
+    if not self.pretraining:
       grid = F.affine_grid(theta, x.size(), align_corners=True)
       x = F.grid_sample(x, grid, align_corners=True)
       mask = F.grid_sample(mask, grid, align_corners=True)
-      if x_th is not None:
-        x_th_stn = F.grid_sample(x_th, grid, align_corners=True)
-      else:
-        x_th_stn = None
+      x_th_stn = F.grid_sample(x_th, grid, align_corners=True)
+    else:
+      x_th_stn = None
     
-    #print(theta)
+    # print(theta)
     # plt.imshow(x_th_stn[0, 0].detach().cpu().numpy())
     # plt.show()
 
@@ -209,13 +193,9 @@ class PreCut(nn.Module):
       theta_inv = torch.inverse(theta_sq)[:, :2, :]
     except:
       theta_inv = torch.zeros_like(theta_sq)[:, :2, :]
-    grid = F.affine_grid(theta_inv, x.size())
-    mask = self.transform(mask, theta_inv, x.size())
 
     if self.segmentation_model is not None:
       seg = self.segmentation_model({'img_th_stn': x_th_stn, 'theta_inv': theta_inv})
-      #is_empty_class = torch.sigmoid(is_empty) > 0.5
-      #seg[is_empty_class] = torch.zeros_like(seg[is_empty_class])
     else:
       seg = None
 
@@ -227,7 +207,6 @@ class PreCut(nn.Module):
       'theta_inv': theta_inv,
       'img_th_stn': x_th_stn,
       'seg': seg,
-      'is_empty': is_empty
     }
 
     return output

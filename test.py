@@ -6,6 +6,8 @@ from scipy import ndimage
 
 import matplotlib.pyplot as plt
 
+from tqdm import tqdm
+
 import os
 import os.path as p
 
@@ -21,8 +23,8 @@ import pre_cut
 
 device = 'cuda'
 
-def get_checkpoint(model_type, log_name):
-  checkpoint = p.join('runs', log_name, model_type, f'{model_type}_best.pth')
+def get_checkpoint(model_type, log_name, fold=0):
+  checkpoint = p.join('runs', log_name, model_type, f'{model_type}_best_fold={fold}.pth')
   checkpoint = torch.load(checkpoint, map_location=device)
   return checkpoint
 
@@ -31,21 +33,20 @@ def get_predictions(model, dataset, viz=True):
   ys = []
   ys_pred = []
 
+  loader = DataLoader(dataset, batch_size=8, shuffle=False, num_workers=8)
+
   model.eval()
   with torch.no_grad():
-    for idx, (data, target) in enumerate(dataset):
-      y = target['seg']
+    for (data, target) in tqdm(loader):
       x_np = data.squeeze().detach().cpu().numpy()
-      y_np = y.squeeze().detach().cpu().numpy()
-      # get largest connected component using ndimage
-      labels = ndimage.label(y_np)[0]
-      y_np = (labels == np.argmax(np.bincount(labels.flat)[1:])+1).astype(int)
+      y_np = target['seg'].squeeze().detach().cpu().numpy()
+      y_np = [utils._thresh(y) for y in y_np]
+      ys += y_np
 
-      xs.append(x_np)
-      ys.append(y_np)
+      xs += [x for x in x_np]
 
       data = data.to(device)
-      output = model(data.unsqueeze(0))
+      output = model(data)
 
       if isinstance(model, pre_cut.PreCut):
         segmentation = output['seg'].squeeze().detach().cpu().numpy()
@@ -58,7 +59,7 @@ def get_predictions(model, dataset, viz=True):
         #   labels = ndimage.label(segmentation)[0]
         #   segmentation = (labels == np.argmax(np.bincount(labels.flat)[1:])+1).astype(int)
 
-        ys_pred.append(segmentation)
+        ys_pred += [s for s in segmentation]
 
         if viz and y_np.sum() > 5:
           viz_titles = ['target']
@@ -73,7 +74,7 @@ def get_predictions(model, dataset, viz=True):
       else:
         output = output.squeeze().detach().cpu().numpy()
         output = utils._thresh(output)
-        ys_pred.append(output)
+        ys_pred.append([o for o in output])
 
   return xs, ys, ys_pred
 

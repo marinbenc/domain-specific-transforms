@@ -5,6 +5,7 @@ import shutil
 import datetime
 import argparse
 import functools
+import json
 
 import torch
 import torch.nn as nn
@@ -13,9 +14,10 @@ import torch.nn.functional as F
 import torch.optim as optim
 import matplotlib.pyplot as plt
 import numpy as np
+from sklearn.model_selection import KFold
 
 import data.pre_cut_dataset as pre_cut_dataset
-import data.datasets as datasets
+import data.datasets as data
 import utils
 import pre_cut
 import segmenters.cnn_segmenter as cnn_seg
@@ -24,12 +26,12 @@ random.seed(2022)
 np.random.seed(2022)
 torch.manual_seed(2022)
 
-def get_model(model_type, log_dir, dataset, device):
+def get_model(model_type, log_dir, dataset, device, fold):
   if model_type == 'unet':
     model = pre_cut.get_unet(dataset, device)
     return model
 
-  unet_path = p.join(log_dir, '../unet', 'unet_best.pth')
+  unet_path = p.join(log_dir, '../unet', f'unet_best_fold={fold}.pth')
   if p.exists(unet_path):
     print('Transfer learning with: ' + unet_path)
     pretrained_unet = unet_path
@@ -39,44 +41,87 @@ def get_model(model_type, log_dir, dataset, device):
   
   segmentation_method = 'none' if model_type == 'precut' else 'cnn'
 
-  precut_path = p.join(log_dir, '../precut', 'precut_best.pth')
+  precut_path = p.join(log_dir, '../precut', f'precut_best_fold={fold}.pth')
   pretrained_precut = precut_path if model_type == 'precut_unet' else None
   model = pre_cut.get_model(segmentation_method=segmentation_method, 
                             dataset=dataset, pretrained_unet=pretrained_unet, 
-                            pretrained_precut=pretrained_precut)
+                            pretrained_precut=pretrained_precut, pretraining=model_type == 'precut')
 
   return model
 
-def train(model_type, batch_size, epochs, lr, dataset, threshold_loss_weight, log_name, log_dir, device):
+def train(args_object, model_type, batch_size, epochs, lr, dataset, threshold_loss_weight, log_name, device, folds, overwrite):
   def worker_init(worker_id):
     np.random.seed(2022 + worker_id)
 
-  # TODO: Add support for cross-validation
+  datasets = []
 
-  os.makedirs(log_dir, exist_ok=True)
+  if folds == 1:
+    train_dataset, valid_dataset = data.get_datasets(dataset, pretraining=model_type == 'precut')
+    datasets.append((train_dataset, valid_dataset))
+    json_dict = {
+      'train_subjects': list(train_dataset.subjects),
+      'valid_subjects': list(valid_dataset.subjects)
+    }
+    with open(f'runs/{log_name}/subjects.json', 'w') as f:
+      json.dump(json_dict, f)
+  else:
+    whole_dataset = data.get_whole_dataset(dataset, pretraining=model_type == 'precut')
+    subjects = list(whole_dataset.subjects)
+    random.shuffle(subjects)
+    kfold = KFold(n_splits=folds, shuffle=True, random_state=2022)
+    splits = list(kfold.split(subjects))
 
-  dataset_class = datasets.get_dataset_class(dataset)
-  train_dataset = pre_cut_dataset.PreCutDataset(dataset_class, pretraining=model_type == 'precut', directory='train')
-  valid_dataset = pre_cut_dataset.PreCutDataset(dataset_class, pretraining=model_type == 'precut', directory='valid')
+    os.makedirs(name=f'runs/{log_name}', exist_ok=True)
+    json_dict = {
+      'train_subjects': [list(np.array(subjects)[idxs]) for (idxs, _) in splits],
+      'valid_subjects': [list(np.array(subjects)[idxs]) for (_, idxs) in splits]
+    }
+    with open(f'runs/{log_name}/subjects.json', 'w') as f:
+      json.dump(json_dict, f)
 
-  train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, worker_init_fn=worker_init)
-  valid_loader = DataLoader(valid_dataset, worker_init_fn=worker_init)
+    for fold, (train_idx, valid_idx) in enumerate(splits):
+      train_subjects = np.array(subjects)[train_idx]
+      valid_subjects = np.array(subjects)[valid_idx]
+      dataset_class = data.get_dataset_class(dataset)
+      train_dataset = dataset_class(subset='all', subjects=train_subjects, pretraining=model_type == 'precut', augment=True)
+      valid_dataset = dataset_class(subset='all', subjects=valid_subjects, pretraining=False, augment=model_type == 'precut')
+      datasets.append((train_dataset, valid_dataset))
+      # check for data leakage
+      intersection = set(train_dataset.file_names).intersection(set(valid_dataset.file_names))
+      assert len(intersection) == 0, f'Found {len(intersection)} overlapping files in fold {fold}'
 
-  if model_type == 'unet':
-    loss = cnn_seg.DiceLoss()
-  elif model_type == 'precut':
-    loss = functools.partial(pre_cut.pre_cut_loss, threshold_loss_weight=threshold_loss_weight)
-  elif model_type == 'precut_unet':
-    loss = cnn_seg.DiceLoss()
+  for fold, (train_dataset, valid_dataset) in enumerate(datasets):
+    print('----------------------------------------')
+    print(f'Fold {fold}')
+    print('----------------------------------------')
 
-  model = get_model(model_type, log_dir, train_dataset, device)
+    log_dir = f'runs/{log_name}/fold{fold}/{model_type}'
+    if p.exists(log_dir):
+      if overwrite:
+        shutil.rmtree(log_dir)
+      else:
+        raise ValueError(f'Log directory already exists: {log_dir}. Use --overwrite to overwrite.')
+
+    utils.save_args(args_object, log_dir)
+
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, worker_init_fn=worker_init)
+    valid_loader = DataLoader(valid_dataset, worker_init_fn=worker_init)
+
+    if model_type == 'unet':
+      loss = cnn_seg.DiceLoss()
+    elif model_type == 'precut':
+      loss = functools.partial(pre_cut.pre_cut_loss, threshold_loss_weight=threshold_loss_weight)
+    elif model_type == 'precut_unet':
+      loss = cnn_seg.DiceLoss()
+
+    model = get_model(model_type, log_dir, train_dataset, device, fold)
+      
+    optimizer = optim.Adam(model.parameters(), lr=lr)
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.1, patience=3, verbose=True, min_lr=1e-15, eps=1e-15)
     
-  optimizer = optim.Adam(model.parameters(), lr=lr)
-  scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.1, patience=3, verbose=True, min_lr=1e-15, eps=1e-15)
-        
-  trainer = utils.Trainer(model, optimizer, loss, train_loader, valid_loader, 
-                          log_dir=log_dir, checkpoint_name=f'{model_type}_best.pth', scheduler=scheduler)
-  trainer.train(epochs)
+    trainer = utils.Trainer(model, optimizer, loss, train_loader, valid_loader, 
+                            log_dir=log_dir, checkpoint_name=f'{model_type}_best_fold={fold}.pth', scheduler=scheduler)
+    trainer.train(epochs)
 
 if __name__ == '__main__':
   parser = argparse.ArgumentParser(
@@ -107,6 +152,12 @@ if __name__ == '__main__':
       unet - just a U-Net."""
   )
   parser.add_argument(
+    '--folds',
+    type=int,
+    default=1,
+    help='number of cross validation folds (1 = no cross validation)',
+  )
+  parser.add_argument(
     '--batch-size',
     type=int,
     default=8,
@@ -125,7 +176,7 @@ if __name__ == '__main__':
     help='learning rate (default: 0.001)',
   )
   parser.add_argument(
-    '--dataset', type=str, choices=datasets.dataset_choices, default='lesion', help='which dataset to use'
+    '--dataset', type=str, choices=data.dataset_choices, default='lesion', help='which dataset to use'
   )
   parser.add_argument(
     '--threshold-loss-weight',
@@ -145,16 +196,5 @@ if __name__ == '__main__':
   # TODO: Add --from-json option to load args from json file
 
   args = parser.parse_args()
-  log_dir = f'runs/{args.log_name}/{args.model_type}'
-  if p.exists(log_dir):
-    if args.overwrite:
-      shutil.rmtree(log_dir)
-    else:
-      raise ValueError(f'Log directory already exists: {log_dir}. Use --overwrite to overwrite.')
-
-  del args.overwrite
-
-  utils.save_args(args, args.model_type)
   args = vars(args)
-  args['log_dir'] = log_dir
-  train(**args)
+  train(args_object=args, **args)

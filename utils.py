@@ -43,9 +43,12 @@ def dull_razor(img):
   return result
 
 def save_args(args, folder):
-    args_file = os.path.join(os.path.dirname(__file__), 'runs', args.log_name, folder, 'args.json')
-    makedirs(os.path.join(os.path.dirname(__file__), 'runs', args.log_name, folder), exist_ok=True)
+    args_file = os.path.join(folder, 'args.json')
+    makedirs(folder, exist_ok=True)
     with open(args_file, 'w') as fp:
+      if isinstance(args, dict):
+        json.dump(args, fp)
+      else:
         json.dump(vars(args), fp)
 
 def save_checkpoint(name, log_dir, model, epoch, optimizer, loss):
