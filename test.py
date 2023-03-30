@@ -23,8 +23,8 @@ import pre_cut
 
 device = 'cuda'
 
-def get_checkpoint(model_type, log_name, fold=0):
-  checkpoint = p.join('runs', log_name, model_type, f'{model_type}_best_fold={fold}.pth')
+def get_checkpoint(model_type, log_name, fold=0, data_percent=1.):
+  checkpoint = p.join('runs', log_name, model_type + f'_dp={int(data_percent * 100)}', f'{model_type}_best_fold={fold}.pth')
   checkpoint = torch.load(checkpoint, map_location=device)
   return checkpoint
 
@@ -38,8 +38,8 @@ def get_predictions(model, dataset, viz=True):
   model.eval()
   with torch.no_grad():
     for (data, target) in tqdm(loader):
-      x_np = data.squeeze().detach().cpu().numpy()
-      y_np = target['seg'].squeeze().detach().cpu().numpy()
+      x_np = data.squeeze(1).detach().cpu().numpy()
+      y_np = target['seg'].squeeze(1).detach().cpu().numpy()
       y_np = [utils._thresh(y) for y in y_np]
       ys += y_np
 
@@ -72,9 +72,9 @@ def get_predictions(model, dataset, viz=True):
           
           utils.show_torch(imgs=viz_images, titles=viz_titles)
       else:
-        output = output.squeeze().detach().cpu().numpy()
-        output = utils._thresh(output)
-        ys_pred.append([o for o in output])
+        output = output.squeeze(1).detach().cpu().numpy()
+        output = [utils._thresh(o) for o in output]
+        ys_pred += [o for o in output]
 
   return xs, ys, ys_pred
 
@@ -98,9 +98,11 @@ def calculate_metrics(ys_pred, ys, metrics, subjects=None):
   if subjects is None:
     subjects = ['none'] * len(ys_pred)
 
-  for (y_pred, y, subject) in zip(ys_pred, ys, subjects):
-    df.loc[len(df)] = [metric(y_pred, y) for metric in metric_fns] + [subject]
-
+  df['subject'] = subjects
+  df['subject'] = df['subject'].astype('category')
+  for (metric_name, fn) in metrics.items():
+    df[metric_name] = [fn(y_pred, y) for (y_pred, y) in zip(ys_pred, ys)]
+  
   return df
 
 def test(model_type, dataset, log_name, dataset_folder, save_predictions, viz):

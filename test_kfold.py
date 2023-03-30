@@ -39,7 +39,6 @@ def test(model_type, dataset, log_name, dataset_folder, save_predictions, viz):
 
   for fold, fold_dir, (train_subjects, valid_subjects) in zip(range(len(fold_dirs)), fold_dirs, splits):
     dataset_class = data.get_dataset_class(dataset)
-    train_dataset = dataset_class(subset='all', subjects=train_subjects, pretraining=model_type == 'precut', augment=True)
     valid_dataset = dataset_class(subset='all', subjects=valid_subjects, pretraining=False, augment=False)
     datasets.append(valid_dataset)
 
@@ -63,7 +62,7 @@ def test(model_type, dataset, log_name, dataset_folder, save_predictions, viz):
     xs_all += xs
     ys_all += ys
     ys_pred_all += ys_pred
-    subjects_all += test_dataset.subject_id_for_idx
+    subjects_all += list(test_dataset.subject_id_for_idx)
 
   if save_predictions:
     os.makedirs(p.join('predictions', log_name), exist_ok=True)
@@ -75,9 +74,9 @@ def test(model_type, dataset, log_name, dataset_folder, save_predictions, viz):
     'prec': utils.precision,
     'rec': utils.recall,
   }
-  df = calculate_metrics(ys, ys_pred, metrics, subjects=subjects_all)
-  df = df.groupby('subject').mean()
 
+  df = calculate_metrics(ys_all, ys_pred_all, metrics, subjects=subjects_all)
+  df = df.groupby(['subject']).mean()
   print(df.describe())
 
   return df
