@@ -181,7 +181,10 @@ class PreCut(nn.Module):
       # zoom out to add padding
       theta[:, 0, 0] *= self.stn_zoom_out
       theta[:, 1, 1] *= self.stn_zoom_out
-      grid = F.affine_grid(theta, x.size(), align_corners=True)
+      size = list(x.shape)
+      size[-2] = int(size[-2] * 0.5)
+      size[-1] = int(size[-1] * 0.5)
+      grid = F.affine_grid(theta, size, align_corners=True)
       x = F.grid_sample(x, grid, align_corners=True)
       mask = F.grid_sample(mask, grid, align_corners=True)
       x_th_stn = F.grid_sample(x_th, grid, align_corners=True)

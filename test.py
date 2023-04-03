@@ -71,8 +71,8 @@ def get_predictions(model, dataset, viz=True):
               viz_titles.append(key)
               viz_images.append(value[0].squeeze())
           
-          viz_images.append(output['seg'][0].cpu().squeeze() * 0.5 + target['seg'][0].squeeze() * 0.5)
-          viz_titles.append('combined')
+          #viz_images.append(output['seg'][0].cpu().squeeze() * 0.5 + target['seg'][0].squeeze() * 0.5)
+          #viz_titles.append('combined')
           utils.show_torch(imgs=viz_images, titles=viz_titles, figsize=(20, 10))
       else:
         output_np = output.squeeze(1).detach().cpu().numpy()
