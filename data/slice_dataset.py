@@ -28,8 +28,8 @@ class SliceDataset(pre_cut_dataset.PreCutDataset):
   """
   # TODO: Add support for cross validation. subjects is currently ignored.
   def __init__(self, subset, pretraining, size, dataset_folder, global_max, global_min,
-                window_max, window_min, in_channels=1, out_channels=1, padding=8, th_padding=0.05, subjects=None, augment=False):
-    super().__init__(subset, pretraining, in_channels, out_channels, size, padding, th_padding, augment)
+                window_max, window_min, in_channels=1, out_channels=1, padding=8, th_padding=0.05, subjects=None, augment=False, return_transformed_img=False):
+    super().__init__(subset, pretraining, in_channels, out_channels, size, padding, th_padding, augment, return_transformed_img)
     self.dataset_folder = dataset_folder
     self.GLOBAL_MAX = global_max
     self.GLOBAL_MIN = global_min

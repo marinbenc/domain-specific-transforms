@@ -24,7 +24,8 @@ import pre_cut
 device = 'cuda'
 
 def get_checkpoint(model_type, log_name, fold=0, data_percent=1.):
-  checkpoint = p.join('runs', log_name, model_type + f'_dp={int(data_percent * 100)}', f'{model_type}_best_fold={fold}.pth')
+  checkpoint = p.join('runs', log_name, model_type + f'_dp={int(data_percent * 100)}_t=0', f'{model_type}_best_fold={fold}.pth')
+  print('Loading checkpoint from:', checkpoint)
   checkpoint = torch.load(checkpoint, map_location=device)
   return checkpoint
 
@@ -49,9 +50,9 @@ def get_predictions(model, dataset, viz=True):
       output = model(data)
 
       if isinstance(model, pre_cut.PreCut):
-        segmentation = output['seg'].squeeze().detach().cpu().numpy()
+        segmentation = output['seg'].squeeze(1).detach().cpu().numpy()
         # post process
-        segmentation = utils._thresh(segmentation)
+        segmentation = [utils._thresh(s) for s in segmentation]
         # if segmentation.sum() > 5:
         #   segmentation = cv.morphologyEx(segmentation, cv.MORPH_CLOSE, np.ones((3, 3)))
         #   segmentation = ndimage.binary_fill_holes(segmentation).astype(int)
@@ -61,20 +62,25 @@ def get_predictions(model, dataset, viz=True):
 
         ys_pred += [s for s in segmentation]
 
-        if viz and y_np.sum() > 5:
+        if viz and y_np[0].sum() > 5:
           viz_titles = ['target']
-          viz_images = [target['seg'].squeeze()]
+          viz_images = [target['seg'][0].squeeze()]
 
           for key, value in output.items():
             if value.dim() == 4:
               viz_titles.append(key)
-              viz_images.append(value.squeeze())
+              viz_images.append(value[0].squeeze())
           
-          utils.show_torch(imgs=viz_images, titles=viz_titles)
+          viz_images.append(output['seg'][0].cpu().squeeze() * 0.5 + target['seg'][0].squeeze() * 0.5)
+          viz_titles.append('combined')
+          utils.show_torch(imgs=viz_images, titles=viz_titles, figsize=(20, 10))
       else:
-        output = output.squeeze(1).detach().cpu().numpy()
-        output = [utils._thresh(o) for o in output]
-        ys_pred += [o for o in output]
+        output_np = output.squeeze(1).detach().cpu().numpy()
+        output_np = [utils._thresh(o) for o in output_np]
+        ys_pred += [o for o in output_np]
+
+        if viz and y_np[0].sum() > 5:
+          utils.show_torch(imgs=[target['seg'][0].squeeze(), output[0].squeeze()], titles=['target', 'output'])
 
   return xs, ys, ys_pred
 

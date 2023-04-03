@@ -108,11 +108,13 @@ class PreCut(nn.Module):
       - 'img_th_stn': STN-transformed image (with thresholding)
       - 'seg': segmentation mask obtained with GrabCut
   """
-  def __init__(self, loc_net, pretraining=False, segmentation_model=None):
+  def __init__(self, loc_net, pretraining=False, segmentation_model=None, stn_zoom_out=1.5):
       super(PreCut, self).__init__()
 
       self.segmentation_model = segmentation_model
       self.pretraining = pretraining
+      self.stn_zoom_out = stn_zoom_out
+      print('Pretraining:', pretraining)
 
       # TODO: Move this to a parameter in init
       self.encoder_output_size = loc_net._out_channels[loc_net._depth]
@@ -176,6 +178,9 @@ class PreCut(nn.Module):
     theta = theta.view(-1, 2, 3)
 
     if not self.pretraining:
+      # zoom out to add padding
+      theta[:, 0, 0] *= self.stn_zoom_out
+      theta[:, 1, 1] *= self.stn_zoom_out
       grid = F.affine_grid(theta, x.size(), align_corners=True)
       x = F.grid_sample(x, grid, align_corners=True)
       mask = F.grid_sample(mask, grid, align_corners=True)

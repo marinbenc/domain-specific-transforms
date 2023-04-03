@@ -26,12 +26,17 @@ random.seed(2022)
 np.random.seed(2022)
 torch.manual_seed(2022)
 
-def get_model(model_type, log_dir, dataset, device, fold, data_percent):
+def get_model(model_type, log_dir, dataset, device, fold, data_percent, is_transformed):
   if model_type == 'unet':
     model = pre_cut.get_unet(dataset, device)
     return model
 
-  unet_path = p.join(log_dir, f'../unet_dp={int(data_percent * 100)}', f'unet_best_fold={fold}.pth')
+  unet_path = p.join(log_dir, f'../unet_dp={int(data_percent * 100)}_t=1', f'unet_best_fold={fold}.pth')
+  if model_type == 'precut':
+    # precut is pretrained on untransformed images
+    unet_path = p.join(log_dir, f'../unet_dp={int(data_percent * 100)}_t=0', f'unet_best_fold={fold}.pth')
+
+  print(unet_path)
   if p.exists(unet_path):
     print('Transfer learning with: ' + unet_path)
     pretrained_unet = unet_path
@@ -41,7 +46,8 @@ def get_model(model_type, log_dir, dataset, device, fold, data_percent):
   
   segmentation_method = 'none' if model_type == 'precut' else 'cnn'
 
-  precut_path = p.join(log_dir, f'../precut_dp={int(data_percent * 100)}', f'precut_best_fold={fold}.pth')
+  # to pretrain precut_unet always use 100% version of precut (weakly labeled)
+  precut_path = p.join(log_dir, f'../precut_dp=100_t=0', f'precut_best_fold={fold}.pth')
   pretrained_precut = precut_path if model_type == 'precut_unet' else None
   model = pre_cut.get_model(segmentation_method=segmentation_method, 
                             dataset=dataset, pretrained_unet=pretrained_unet, 
@@ -49,14 +55,15 @@ def get_model(model_type, log_dir, dataset, device, fold, data_percent):
 
   return model
 
-def train(args_object, model_type, batch_size, epochs, lr, dataset, threshold_loss_weight, log_name, device, folds, data_percent, overwrite):
+def train(args_object, model_type, batch_size, epochs, lr, dataset, threshold_loss_weight, log_name, device, folds, data_percent, overwrite, train_on_transformed_imgs):
   def worker_init(worker_id):
     np.random.seed(2022 + worker_id)
+  os.makedirs(name=f'runs/{log_name}', exist_ok=True)
 
   datasets = []
 
   if folds == 1:
-    train_dataset, valid_dataset = data.get_datasets(dataset, pretraining=model_type == 'precut')
+    train_dataset, valid_dataset = data.get_datasets(dataset, pretraining=model_type == 'precut', return_transformed_img=train_on_transformed_imgs)
     datasets.append((train_dataset, valid_dataset))
     json_dict = {
       'train_subjects': list(train_dataset.subjects),
@@ -66,33 +73,40 @@ def train(args_object, model_type, batch_size, epochs, lr, dataset, threshold_lo
       json.dump(json_dict, f)
   else:
     whole_dataset = data.get_whole_dataset(dataset, pretraining=model_type == 'precut')
-    subjects = list(whole_dataset.subjects)
-    random.shuffle(subjects)
-    kfold = KFold(n_splits=folds, shuffle=True, random_state=2022)
-    splits = list(kfold.split(subjects))
+    subject_ids = list(whole_dataset.subjects)
+    subject_ids = sorted(subject_ids)
+
+    existing_split = p.join('runs', log_name, 'subjects.json')
+    if p.exists(existing_split):
+      print('Using existing subject split')
+      with open(existing_split, 'r') as f:
+        json_dict = json.load(f)
+      splits = zip(json_dict['train_subjects'], json_dict['valid_subjects'])
+    else:
+      kfold = KFold(n_splits=folds, shuffle=True, random_state=2022)
+      splits = list(kfold.split(subject_ids))
+      # convert from indices to subject ids
+      splits = [([subject_ids[idx] for idx in train_idx], [subject_ids[idx] for idx in valid_idx]) for train_idx, valid_idx in splits]
+
+      json_dict = {
+        'train_subjects': [ids for (ids, _) in splits],
+        'valid_subjects': [ids for (_, ids) in splits]
+      }
+      with open(f'runs/{log_name}/subjects.json', 'w') as f:
+        json.dump(json_dict, f)
 
     if data_percent < 1:
       new_splits = []
-      for train_idx, valid_idx in splits:
-        remaining_train_idx = train_idx[:int(len(train_idx) * data_percent)]
-        print(f'Using {len(remaining_train_idx)} out of {len(train_idx)} training subjects')
-        new_splits.append((remaining_train_idx, valid_idx))
+      for train_ids, valid_ids in splits:
+        remaining_train_ids = train_ids[:int(len(train_ids) * data_percent)]
+        print(f'Using {len(remaining_train_ids)} out of {len(train_ids)} training subjects')
+        new_splits.append((remaining_train_ids, valid_ids))
       splits = new_splits
 
-    os.makedirs(name=f'runs/{log_name}', exist_ok=True)
-    json_dict = {
-      'train_subjects': [list(np.array(subjects)[idxs]) for (idxs, _) in splits],
-      'valid_subjects': [list(np.array(subjects)[idxs]) for (_, idxs) in splits]
-    }
-    with open(f'runs/{log_name}/subjects.json', 'w') as f:
-      json.dump(json_dict, f)
-
-    for fold, (train_idx, valid_idx) in enumerate(splits):
-      train_subjects = np.array(subjects)[train_idx]
-      valid_subjects = np.array(subjects)[valid_idx]
+    for fold, (train_ids, valid_ids) in enumerate(splits):
       dataset_class = data.get_dataset_class(dataset)
-      train_dataset = dataset_class(subset='all', subjects=train_subjects, pretraining=model_type == 'precut', augment=True)
-      valid_dataset = dataset_class(subset='all', subjects=valid_subjects, pretraining=False, augment=model_type == 'precut')
+      train_dataset = dataset_class(subset='all', subjects=train_ids, pretraining=model_type == 'precut', augment=True, return_transformed_img=train_on_transformed_imgs)
+      valid_dataset = dataset_class(subset='all', subjects=valid_ids, pretraining=False, augment=model_type == 'precut', return_transformed_img=train_on_transformed_imgs)
       datasets.append((train_dataset, valid_dataset))
       # check for data leakage
       intersection = set(train_dataset.file_names).intersection(set(valid_dataset.file_names))
@@ -103,7 +117,7 @@ def train(args_object, model_type, batch_size, epochs, lr, dataset, threshold_lo
     print(f'Fold {fold}')
     print('----------------------------------------')
 
-    log_dir = f'runs/{log_name}/fold{fold}/{model_type}_dp={int(data_percent * 100)}'
+    log_dir = f'runs/{log_name}/fold{fold}/{model_type}_dp={int(data_percent * 100)}_t={int(train_on_transformed_imgs)}'
     if p.exists(log_dir):
       if overwrite:
         shutil.rmtree(log_dir)
@@ -122,7 +136,7 @@ def train(args_object, model_type, batch_size, epochs, lr, dataset, threshold_lo
     elif model_type == 'precut_unet':
       loss = cnn_seg.DiceLoss()
 
-    model = get_model(model_type, log_dir, train_dataset, device, fold, data_percent)
+    model = get_model(model_type, log_dir, train_dataset, device, fold, data_percent, train_on_transformed_imgs)
       
     optimizer = optim.Adam(model.parameters(), lr=lr)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.1, patience=3, verbose=True, min_lr=1e-15, eps=1e-15)
@@ -206,6 +220,9 @@ if __name__ == '__main__':
     type=float,
     default=1.,
     help='percentage of data to use for training (default: 1.0)',
+  )
+  parser.add_argument(
+    '--train-on-transformed-imgs', action='store_true', help="train on transformed images"
   )
   # TODO: Add --from-json option to load args from json file
 

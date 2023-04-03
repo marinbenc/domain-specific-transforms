@@ -1,6 +1,6 @@
 import data.slice_dataset as slice_dataset
 
-def SpleenDataset(subset, pretraining, subjects=None, augment=False):
+def SpleenDataset(subset, pretraining, subjects=None, augment=False, return_transformed_img=False):
   return slice_dataset.SliceDataset(
     subset=subset,
     pretraining=pretraining,
@@ -10,7 +10,8 @@ def SpleenDataset(subset, pretraining, subjects=None, augment=False):
     global_min=-1024,
     global_max=1024,
     size=512,
-    padding=16,
+    padding=8,
     subjects=subjects,
     augment=augment,
+    return_transformed_img=return_transformed_img,
   )

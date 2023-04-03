@@ -11,10 +11,10 @@ def get_dataset_class(dataset_name):
     raise ValueError(f'Unknown dataset {dataset_name}')
   return dataset_to_class[dataset_name]
 
-def get_datasets(dataset, pretraining=False):
+def get_datasets(dataset, pretraining=False, return_transformed_img=False):
   dataset_class = get_dataset_class(dataset)
-  train_dataset = dataset_class(subset='train', pretraining=pretraining)
-  val_dataset = dataset_class(subset='valid', pretraining=False)
+  train_dataset = dataset_class(subset='train', pretraining=pretraining, return_transformed_img=return_transformed_img)
+  val_dataset = dataset_class(subset='valid', pretraining=False, return_transformed_img=return_transformed_img)
   return train_dataset, val_dataset
 
 def get_whole_dataset(dataset, pretraining=False):

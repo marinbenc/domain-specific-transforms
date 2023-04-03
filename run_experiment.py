@@ -6,11 +6,12 @@ import os.path as p
 from pathlib import Path
 import train
 
-def process_config(config, folder_name, dataset_percent=1.):
-  config['dataset_percent'] = dataset_percent
+def process_config(config, folder_name, dataset_percent=1., train_on_transformed_imgs=False):
+  config['data_percent'] = dataset_percent
   config['overwrite'] = True
   config['log_name'] = folder_name
   config['folds'] = 4
+  config['train_on_transformed_imgs'] = train_on_transformed_imgs
   return config
 
 def main(config_folder):
@@ -20,7 +21,10 @@ def main(config_folder):
   precut_config = json.load(open(config_folder / 'precut_config.json'))
   precut_unet_config = json.load(open(config_folder / 'precut_unet_config.json'))
 
-  dataset_percentages = [0.05, 0.1, 0.25, 0.5, 1]
+  # TODO: Add checks for which models are already trained
+
+  # TODO: Rename dataset_percent to dataset_size, accept both percentages and number of samples
+  dataset_percentages = [1.0]#[0.05, 0.1, 0.25, 0.5, 1.0] # TODO: Add 1.0
 
   print('-----------------')
   print('Training U-Net')
@@ -28,15 +32,33 @@ def main(config_folder):
 
   for dataset_percent in dataset_percentages:
     print(f'Running U-Net for {dataset_percent * 100}% of the dataset')
-    config = process_config(unet_config, folder_name, dataset_percent)
-    train.main(config)
+    if not (Path('runs') / folder_name / f'fold0/unet_dp={int(dataset_percent * 100)}_t=0').exists():
+      config = process_config(unet_config, folder_name, dataset_percent)
+      train.train(args_object=config, **config)
+    else:
+      print('Already trained, skipping...')
+
+  print('-----------------')
+  print('Pre-training U-Net encoder for PreCut')
+  print('-----------------')
+
+  for dataset_percent in dataset_percentages:
+    print(f'Running U-Net (transformed) for {dataset_percent * 100}% of the dataset')
+    if not (Path('runs') / folder_name / f'fold0/unet_dp={int(dataset_percent * 100)}_t=1').exists():
+      config = process_config(unet_config, folder_name, dataset_percent, train_on_transformed_imgs=True)
+      train.train(args_object=config, **config)
+    else:
+      print('Already trained, skipping...')
   
   print('-----------------')
   print('Training PreCut')
   print('-----------------')
 
-  config = process_config(precut_config, folder_name)
-  train.main(config)
+  if not (Path('runs') / folder_name / f'fold0/precut_dp=100_t=0').exists():
+    config = process_config(precut_config, folder_name)
+    train.train(args_object=config, **config)
+  else:
+    print('Already trained, skipping...')
 
   print('-----------------')
   print('Training PreCut + U-Net')
@@ -44,8 +66,11 @@ def main(config_folder):
 
   for dataset_percent in dataset_percentages:
     print(f'Running PreCut + U-Net for {dataset_percent * 100}% of the dataset')
-    config = process_config(precut_unet_config, folder_name, dataset_percent)
-    train.main(config)
+    if not (Path('runs') / folder_name / f'fold0/precut_unet_dp={int(dataset_percent * 100)}_t=0').exists():
+      config = process_config(precut_unet_config, folder_name, dataset_percent)
+      train.train(args_object=config, **config)
+    else:
+      print('Already trained, skipping...')
 
 if __name__ == '__main__':
   parser = argparse.ArgumentParser(
@@ -76,8 +101,8 @@ if __name__ == '__main__':
     formatter_class=argparse.RawTextHelpFormatter
   )
   parser.add_argument(
-    '--config-folder', type=str, help='name of folder where models are saved',
+    '--config-folder', '-c', type=str, help='name of folder where models are saved',
   )
   args = parser.parse_args()
   args = vars(args)
-  train(**args)
+  main(**args)

@@ -48,9 +48,9 @@ def get_bbox(input, label, padding=32, bbox_aug=0):
     input: input image
     label: label image
     padding: padding around label
-    bbox_aug: random bbox augmentation in pixels, 
+    bbox_aug: random bbox augmentation as a percentage of the bbox size, 
               each bbox parameter (x, y, w, h) is augmented 
-              by a random value in [-bbox_aug, bbox_aug]
+              by a random value in [-bbox_aug * min(w, h), bbox_aug * min(w, h)]
 
   Returns:
     x, y, w, h: bbox parameters
@@ -65,8 +65,13 @@ def get_bbox(input, label, padding=32, bbox_aug=0):
 
   x, y, w, h = bbox
 
+  if w == 0 or h == 0 or x < 0 or y < 0:
+    print('Warning: invalid bbox, using full image')
+    x, y, w, h = 0, 0, *original_size
+    return x, y, w, h
+
   if bbox_aug > 0:
-    augs = np.random.randint(-bbox_aug, bbox_aug, size=4)
+    augs = np.random.uniform(-bbox_aug * min(w, h), bbox_aug * min(w, h), size=4)
     x += augs[0]
     y += augs[1]
     w += augs[2]
@@ -174,8 +179,9 @@ class PreCutDataset(Dataset):
     size: The size of the input images (single float). Images are assumed to be square.
     padding: The padding to add to the STN transform.
     th_padding: The padding to add to the threshold.
+    return_transformed_img: Whether to return the transformed image or untransformed input.
   """
-  def __init__(self, subset, pretraining, in_channels, out_channels, width, padding, th_padding, augment):
+  def __init__(self, subset, pretraining, in_channels, out_channels, width, padding, th_padding, augment, stn_zoom_out=1.5, return_transformed_img=False):
     self.in_channels = in_channels
     self.out_channels = out_channels
     self.width = width
@@ -183,9 +189,11 @@ class PreCutDataset(Dataset):
     self.pretraining = pretraining
     self.th_padding = th_padding
     self.th_aug = 0.05 if pretraining else 0
-    self.bbox_aug = self.padding // 2 if pretraining else 0
+    self.bbox_aug = 0.1 if augment and not pretraining else 0
     self.subset = subset
     self.augment = augment
+    self.stn_zoom_out = stn_zoom_out
+    self.return_transformed_img = return_transformed_img
   
   def get_item_np(self, idx, augmentation):
     raise NotImplementedError
@@ -195,9 +203,9 @@ class PreCutDataset(Dataset):
 
   def _get_augmentation_pretraining(self):
     return A.Compose([
-      #A.HorizontalFlip(p=0.5),
-      A.GridDistortion(p=0.5, distort_limit=0.1),
-      A.ShiftScaleRotate(p=0.5, rotate_limit=10, scale_limit=0.05, shift_limit=0.05),
+      #A.HorizontalFlip(p=0.3),
+      A.GridDistortion(p=0.5, distort_limit=0.15, normalized=True),
+      #A.ShiftScaleRotate(p=0.5, rotate_limit=8, scale_limit=0.1, shift_limit=0.1),
       # TODO: Try brightness / contrast / gamma
     ])
   
@@ -236,18 +244,26 @@ class PreCutDataset(Dataset):
     if not self.pretraining:
       # Pretraining loss does not use the images, so skip the transformations to save time.
       M = get_affine_from_bbox(x, y, w, h, original_size[0])
+      scale = (self.stn_zoom_out - 1) # TODO: Don't hard-code this. This needs to be the same as in pre_cut.
+      M[0, 2] += scale * original_size[1]
+      M[1, 2] += scale * original_size[0]
+      M *= scale
       input_cropped = cv.warpAffine(input, M, original_size, flags=cv.INTER_LINEAR)
       label_cropped = cv.warpAffine(label, M, original_size, flags=cv.INTER_NEAREST)
-      output_dict['img_stn'] = to_tensor(image=input_cropped)['image']
+      transformed = to_tensor(image=input_cropped, mask=label_cropped)
+      input_cropped_tensor, label_cropped_tensor = transformed['image'], transformed['mask']
+      output_dict['img_stn'] = input_cropped_tensor
+      if self.return_transformed_img:
+        output_dict['seg'] = label_cropped_tensor.unsqueeze(0).float()
 
       input_th_stn = input_cropped.copy()
       low, high = threshold
       input_th_stn[input_th_stn < low] = low
       input_th_stn[input_th_stn > high] = low
       input_th_stn = (input_th_stn - low) / (high - low + 1e-8)
-      output_dict['img_th_stn'] = to_tensor(image=input_th_stn)['image']
+      output_dict['img_th_stn'] = to_tensor(image=input_th_stn)['image'].float()
 
-      #utils.show_images_row([input, input_cropped, input_th_stn])
+      #utils.show_images_row([input, input_cropped, label_cropped, input_th_stn])
     
     # print(output_dict['theta'].numpy())
     
@@ -264,4 +280,7 @@ class PreCutDataset(Dataset):
 
     # delete None values
     output_dict = {k: v for k, v in output_dict.items() if v is not None}
-    return input_tensor, output_dict
+    if self.return_transformed_img:    
+      return output_dict['img_th_stn'], output_dict
+    else:
+      return input_tensor, output_dict

@@ -1,0 +1,1 @@
+{"model_type": "precut", "folds": 4, "batch_size": 8, "epochs": 1000, "lr": 0.0001, "dataset": "spleen", "threshold_loss_weight": 200.0, "log_name": "spleen_kfold_lite", "overwrite": true, "device": "cuda", "data_percent": 1.0}
