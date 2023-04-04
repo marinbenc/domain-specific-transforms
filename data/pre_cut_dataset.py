@@ -203,9 +203,9 @@ class PreCutDataset(Dataset):
 
   def _get_augmentation_pretraining(self):
     return A.Compose([
-      #A.HorizontalFlip(p=0.3),
-      A.GridDistortion(p=0.5, distort_limit=0.15, normalized=True),
-      #A.ShiftScaleRotate(p=0.5, rotate_limit=8, scale_limit=0.1, shift_limit=0.1),
+      A.HorizontalFlip(p=0.3),
+      A.GridDistortion(p=0.5, distort_limit=0.2, normalized=True),
+      A.ShiftScaleRotate(p=0.5, rotate_limit=8, scale_limit=0.1, shift_limit=0.1, rotate_method='ellipse')
       # TODO: Try brightness / contrast / gamma
     ])
   

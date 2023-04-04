@@ -34,7 +34,7 @@ def get_model(model_type, log_dir, dataset, device, fold, data_percent, is_trans
   unet_path = p.join(log_dir, f'../unet_dp={int(data_percent * 100)}_t=1', f'unet_best_fold={fold}.pth')
   if model_type == 'precut':
     # precut is pretrained on untransformed images
-    unet_path = p.join(log_dir, f'../unet_dp={int(data_percent * 100)}_t=0', f'unet_best_fold={fold}.pth')
+    unet_path = p.join(log_dir, f'../unet_dp={int(data_percent * 100)}_t=0_NONEXISTANT', f'unet_best_fold={fold}.pth')
 
   print(unet_path)
   if p.exists(unet_path):
