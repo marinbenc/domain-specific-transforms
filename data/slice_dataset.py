@@ -4,6 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 import albumentations as A
+import cv2 as cv
 
 import data.pre_cut_dataset as pre_cut_dataset
 import utils
@@ -28,13 +29,13 @@ class SliceDataset(pre_cut_dataset.PreCutDataset):
   """
   # TODO: Add support for cross validation. subjects is currently ignored.
   def __init__(self, subset, pretraining, size, dataset_folder, global_max, global_min,
-                window_max, window_min, in_channels=1, out_channels=1, padding=8, th_padding=0.05, subjects=None, augment=False, return_transformed_img=False):
+                window_max, window_min, in_channels=1, out_channels=1, padding=8, th_padding=0.05, 
+                subjects=None, augment=False, return_transformed_img=False, manually_threshold=False):
     super().__init__(subset, pretraining, in_channels, out_channels, size, padding, th_padding, augment, return_transformed_img)
     self.dataset_folder = dataset_folder
     self.GLOBAL_MAX = global_max
     self.GLOBAL_MIN = global_min
-    self.WINDOW_MAX = window_max
-    self.WINDOW_MIN = window_min
+    self.manual_threshold = (window_min, window_max) if manually_threshold else None
 
     if subjects is not None:
       self.subset = 'all'
@@ -79,8 +80,8 @@ class SliceDataset(pre_cut_dataset.PreCutDataset):
   
   def get_train_augmentation(self):
     return A.Compose([
-      A.ShiftScaleRotate(p=0.5, rotate_limit=15, scale_limit=0.15, shift_limit=0.15),
-      A.GridDistortion(p=0.5),
+      A.GridDistortion(p=0.5, normalized=True, border_mode=cv.BORDER_CONSTANT, value=0),
+      A.ShiftScaleRotate(p=0.5, rotate_limit=15, scale_limit=0.15, shift_limit=0.15, border_mode=cv.BORDER_CONSTANT, value=0, rotate_method='ellipse'),
     ])
   
   def __len__(self):
@@ -98,13 +99,19 @@ class SliceDataset(pre_cut_dataset.PreCutDataset):
     # Just use single class. TODO: Add multi-class support?
     if len(mask.shape) == 3 and mask.shape[0] > 1:
       mask = mask[0, ...]
+    mask[mask > 0.5] = 1
     
-    scan[scan < self.GLOBAL_MIN] = self.GLOBAL_MIN
-    scan[scan > self.GLOBAL_MAX] = self.GLOBAL_MAX
+    min = self.GLOBAL_MIN
+    max = self.GLOBAL_MAX
+    if self.manual_threshold is not None:
+      min, max = self.manual_threshold
+
+    scan[scan < min] = min
+    scan[scan > max] = max
 
     scan = scan.astype(np.float)
     # normalize
-    scan = (scan - self.GLOBAL_MIN) / (self.GLOBAL_MAX - self.GLOBAL_MIN)
+    scan = (scan - min) / (max - min)
 
     if augmentation is not None:
       transformed = augmentation(image=scan, mask=mask)

@@ -1,0 +1,1 @@
+{"model_type": "precut", "folds": 4, "batch_size": 32, "epochs": 100, "lr": 1e-05, "dataset": "prostate", "threshold_loss_weight": 200.0, "log_name": "prostate_test", "overwrite": true, "device": "cuda", "data_percent": 1.0, "train_on_transformed_imgs": false}

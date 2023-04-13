@@ -34,7 +34,7 @@ def get_model(model_type, log_dir, dataset, device, fold, data_percent, is_trans
   unet_path = p.join(log_dir, f'../unet_dp={int(data_percent * 100)}_t=1', f'unet_best_fold={fold}.pth')
   if model_type == 'precut':
     # precut is pretrained on untransformed images
-    unet_path = p.join(log_dir, f'../unet_dp={int(data_percent * 100)}_t=0_NONEXISTANT', f'unet_best_fold={fold}.pth')
+    unet_path = p.join(log_dir, f'../unet_dp={int(data_percent * 100)}_NONEXISTANT_t=0', f'unet_best_fold={fold}.pth')
 
   print(unet_path)
   if p.exists(unet_path):
@@ -95,7 +95,7 @@ def train(args_object, model_type, batch_size, epochs, lr, dataset, threshold_lo
       with open(f'runs/{log_name}/subjects.json', 'w') as f:
         json.dump(json_dict, f)
 
-    if data_percent < 1:
+    if data_percent < 1 and model_type != 'precut':
       new_splits = []
       for train_ids, valid_ids in splits:
         remaining_train_ids = train_ids[:int(len(train_ids) * data_percent)]
@@ -105,8 +105,10 @@ def train(args_object, model_type, batch_size, epochs, lr, dataset, threshold_lo
 
     for fold, (train_ids, valid_ids) in enumerate(splits):
       dataset_class = data.get_dataset_class(dataset)
-      train_dataset = dataset_class(subset='all', subjects=train_ids, pretraining=model_type == 'precut', augment=True, return_transformed_img=train_on_transformed_imgs)
-      valid_dataset = dataset_class(subset='all', subjects=valid_ids, pretraining=False, augment=model_type == 'precut', return_transformed_img=train_on_transformed_imgs)
+      train_dataset = dataset_class(subset='all', subjects=train_ids, pretraining=model_type == 'precut', 
+                                    augment=True, return_transformed_img=train_on_transformed_imgs, manually_threshold=model_type == 'unet')
+      valid_dataset = dataset_class(subset='all', subjects=valid_ids, pretraining=False, augment=model_type == 'precut', 
+                                    return_transformed_img=train_on_transformed_imgs, manually_threshold=model_type == 'unet')
       datasets.append((train_dataset, valid_dataset))
       # check for data leakage
       intersection = set(train_dataset.file_names).intersection(set(valid_dataset.file_names))
@@ -126,8 +128,8 @@ def train(args_object, model_type, batch_size, epochs, lr, dataset, threshold_lo
 
     utils.save_args(args_object, log_dir)
 
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, worker_init_fn=worker_init)
-    valid_loader = DataLoader(valid_dataset, worker_init_fn=worker_init)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, worker_init_fn=worker_init, num_workers=1)
+    valid_loader = DataLoader(valid_dataset, worker_init_fn=worker_init, num_workers=1)
 
     if model_type == 'unet':
       loss = cnn_seg.DiceLoss()

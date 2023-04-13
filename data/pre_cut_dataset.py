@@ -66,7 +66,8 @@ def get_bbox(input, label, padding=32, bbox_aug=0):
   x, y, w, h = bbox
 
   if w == 0 or h == 0 or x < 0 or y < 0:
-    print('Warning: invalid bbox, using full image')
+    if label_th.sum() > 0:
+      print('Warning: invalid bbox, using full image')
     x, y, w, h = 0, 0, *original_size
     return x, y, w, h
 
@@ -204,8 +205,8 @@ class PreCutDataset(Dataset):
   def _get_augmentation_pretraining(self):
     return A.Compose([
       A.HorizontalFlip(p=0.3),
-      A.GridDistortion(p=0.5, distort_limit=0.2, normalized=True),
-      A.ShiftScaleRotate(p=0.5, rotate_limit=8, scale_limit=0.1, shift_limit=0.1, rotate_method='ellipse')
+      A.GridDistortion(p=0.5, distort_limit=0.2, normalized=True, border_mode=cv.BORDER_CONSTANT, value=0),
+      A.ShiftScaleRotate(p=0.5, rotate_limit=8, scale_limit=0.1, shift_limit=0.1, rotate_method='ellipse', border_mode=cv.BORDER_CONSTANT, value=0),
       # TODO: Try brightness / contrast / gamma
     ])
   
@@ -283,4 +284,8 @@ class PreCutDataset(Dataset):
     if self.return_transformed_img:    
       return output_dict['img_th_stn'], output_dict
     else:
+      # plt.imshow(input_tensor[0].numpy())
+      # plt.show()
+      # plt.imshow(output_dict['seg'][0].numpy())
+      # plt.show()
       return input_tensor, output_dict

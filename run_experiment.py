@@ -24,7 +24,7 @@ def main(config_folder):
   # TODO: Add checks for which models are already trained
 
   # TODO: Rename dataset_percent to dataset_size, accept both percentages and number of samples
-  dataset_percentages = [1.0]#[0.05, 0.1, 0.25, 0.5, 1.0] # TODO: Add 1.0
+  dataset_percentages = [0.05, 0.1, 0.25, 0.5, 1.0] # TODO: Add 1.0
 
   print('-----------------')
   print('Training U-Net')

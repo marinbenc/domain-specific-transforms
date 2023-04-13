@@ -53,9 +53,9 @@ def test(model_type, dataset, log_name, dataset_folder, save_predictions, viz, d
     elif model_type == 'precut':
       model = pre_cut.get_model(segmentation_method='grabcut', dataset=test_dataset)
     elif model_type == 'precut_unet':
-      pretrained_unet = p.join('runs', log_name, f'fold{fold}', 'unet_dp=100_t=1', f'unet_best_fold={fold}.pth')
-      pretrained_precut = p.join('runs', log_name, f'fold{fold}', 'precut_dp=100_t=0', f'precut_best_fold={fold}.pth')
-      model = pre_cut.get_model(segmentation_method='cnn', dataset=test_dataset, pretrained_unet=pretrained_unet, pretrained_precut=pretrained_precut)
+      #pretrained_unet = p.join('runs', log_name, f'fold{fold}', 'unet_dp=100_t=1', f'unet_best_fold={fold}.pth')
+      #pretrained_precut = p.join('runs', log_name, f'fold{fold}', 'precut_dp=100_t=0', f'precut_best_fold={fold}.pth')
+      model = pre_cut.get_model(segmentation_method='cnn', dataset=test_dataset)
 
     checkpoint = get_checkpoint(model_type, log_name / f'fold{fold}', fold=fold, data_percent=data_percent)
     model.load_state_dict(checkpoint['model'])
@@ -65,7 +65,6 @@ def test(model_type, dataset, log_name, dataset_folder, save_predictions, viz, d
     ys_all += ys
     ys_pred_all += ys_pred
     subjects_all += list(test_dataset.subject_id_for_idx)
-    break
 
   if save_predictions:
     os.makedirs(p.join('predictions', log_name), exist_ok=True)

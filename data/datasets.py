@@ -1,7 +1,11 @@
 import data.spleen.spleen_dataset as spleen
+import data.prostate.prostate_dataset as prostate
+import data.heart.heart_dataset as heart
 
 dataset_to_class = {
   'spleen': spleen.SpleenDataset,
+  'prostate': prostate.ProstateDataset,
+  'heart': heart.HeartDataset,
 }
 
 dataset_choices = dataset_to_class.keys()
