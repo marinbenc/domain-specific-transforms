@@ -7,29 +7,54 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 import segmentation_models_pytorch as smp
+from monai.networks.nets import FlexibleUNet
 
 import utils
 # TODO: Remove
 from segmenters.grabcut_segmenter import GrabCutSegmenter
 from segmenters.cnn_segmenter import CNNSegmenter
+import data
 
 def pre_cut_loss(output, target, threshold_loss_weight=1.0):
   output_theta, target_theta = output['theta'], target['theta']
   output_thresh, target_thresh = output['threshold'], target['threshold']
   th_loss = F.mse_loss(output_thresh, target_thresh)
-  stn_loss = F.l1_loss(output_theta, target_theta)
+  stn_loss = F.mse_loss(output_theta, target_theta)
+  #print(f'Loss: {stn_loss.item():.4f} + {threshold_loss_weight:.2f} * {th_loss.item():.4f} = {stn_loss.item() + threshold_loss_weight * th_loss.item():.4f}')
   return stn_loss + threshold_loss_weight * th_loss
 
-def get_unet(dataset, device, checkpoint=None):
-  unet = smp.Unet('resnet18', in_channels=dataset.in_channels, classes=1, 
-                  activation='sigmoid', decoder_use_batchnorm=True)
-                  # TODO: Check if smaller model is better
-                  #encoder_depth=3, decoder_channels=(128, 64, 16))
+def get_unet_3d(dataset, device, checkpoint=None):
+  unet = FlexibleUNet(
+    spatial_dims=3,
+    in_channels=dataset.in_channels,
+    out_channels=1, # TODO: Multiple classes support
+    backbone='efficientnet-b0',
+    pretrained=True)
+  unet.segmentation_head[-1] = nn.Sigmoid()
   unet = unet.to(device)
   if checkpoint is not None:
     saved_unet = torch.load(checkpoint)
     unet.load_state_dict(saved_unet['model'])
   return unet
+
+def _get_unet_loc_net_3d(dataset, device, checkpoint=None):
+  unet = get_unet_3d(dataset, device, checkpoint)
+  return unet.encoder
+
+def get_unet(dataset, device, checkpoint=None):
+  is_3d = isinstance(dataset, data.scan_dataset.ScanDataset)
+  if is_3d:
+    return get_unet_3d(dataset, device, checkpoint)
+  else:
+    unet = smp.Unet('resnet18', in_channels=dataset.in_channels, classes=1, 
+                    activation='sigmoid', decoder_use_batchnorm=True)
+                    # TODO: Check if smaller model is better
+                    #encoder_depth=3, decoder_channels=(128, 64, 16))
+    unet = unet.to(device)
+    if checkpoint is not None:
+      saved_unet = torch.load(checkpoint)
+      unet.load_state_dict(saved_unet['model'])
+    return unet
 
 def _get_unet_loc_net(dataset, device, checkpoint=None):
   unet = get_unet(dataset, device, checkpoint)
@@ -46,19 +71,27 @@ def get_model(segmentation_method, dataset, pretrained_unet=None, pretrained_pre
       as well as the segmentation model if `segmentation_method` is 'cnn'.
     device: the device to use
   """
-  loc_net = _get_unet_loc_net(dataset, device, pretrained_unet)
+  is_3d = isinstance(dataset, data.scan_dataset.ScanDataset)
+
+  if is_3d:
+    loc_net = _get_unet_loc_net_3d(dataset, device, pretrained_unet)
+  else:
+    loc_net = _get_unet_loc_net(dataset, device, pretrained_unet)
   
   if segmentation_method == 'grabcut':
     segmentation_model = GrabCutSegmenter(padding=dataset.padding, **segmenter_kwargs)
   elif segmentation_method == 'cnn':
-    unet = get_unet(dataset, device, pretrained_unet)
+    if is_3d:
+      unet = get_unet_3d(dataset, device, pretrained_unet)
+    else:
+      unet = get_unet(dataset, device, pretrained_unet)
     segmentation_model = CNNSegmenter(padding=dataset.padding, segmentation_model=unet, **segmenter_kwargs)
   elif segmentation_method == 'none':
     segmentation_model = None
   else:
     raise ValueError(f'Invalid segmentation method: {segmentation_method}')
   
-  model = PreCut(loc_net=loc_net, segmentation_model=segmentation_model, pretraining=pretraining)
+  model = PreCut(loc_net=loc_net, segmentation_model=segmentation_model, pretraining=pretraining, spatial_dims=3 if is_3d else 2)
   if pretrained_precut is not None:
     print('Pretraining PreCut...')
     saved_model = torch.load(pretrained_precut)
@@ -76,12 +109,10 @@ def get_model(segmentation_method, dataset, pretrained_unet=None, pretrained_pre
 class PreCut(nn.Module):
   """
   Attributes:
-    loc_net: the localization network
-
+    loc_net: the localization network.
     stn_transform: if `True`, the model will use STN. Useful for pre-training the thresholding.
       Note: if `stn_transform` is `False`, `theta`, `img_stn` and `img_th_stn` will be `None` 
       in the output dictionary.
-    
     segmentation_model: the segmentation model or None if no segmentation is needed. If `None`,
       `seg` will be `None` in the output dictionary. 
       
@@ -96,36 +127,42 @@ class PreCut(nn.Module):
       Built in segmentation models (see segmenters/):
         - GrabCutSegmenter: uses OpenCV's GrabCut algorithm
         - CNNSegmenter: uses a U-Net to segment the image
-
-    **segmenter_kwargs: keyword arguments to pass to the segmentation model
+    pretraining: if `True`, the model will be used for pre-training (disables transformation and segmentation).
+    stn_zoom_out: the zoom out factor for the STN. The STN will zoom out by this factor before segmentation (only when not pretraining).
+    spatial_dims: the number of spatial dimensions (2 or 3)
 
   Returns: 
     A dictionary with keys:
       - 'img_th': thresholded image
       - 'threshold': the threshold with shape (batch_size, 2)
       - 'img_stn: STN-transformed image (without thresholding)
-      - 'theta': the 3 * 2 affine matrix output by the STN with shape (batch_size, 3, 2)
+      - 'theta': the affine matrix output by the STN with shape (batch_size, 3, 2)
       - 'img_th_stn': STN-transformed image (with thresholding)
       - 'seg': segmentation mask obtained with GrabCut
   """
-  def __init__(self, loc_net, pretraining=False, segmentation_model=None, stn_zoom_out=1.5):
+  def __init__(self, loc_net, pretraining=False, segmentation_model=None, spatial_dims=2, stn_zoom_out=1.1):
       super(PreCut, self).__init__()
 
       self.segmentation_model = segmentation_model
       self.pretraining = pretraining
       self.stn_zoom_out = stn_zoom_out
+      self.spatial_dims = spatial_dims
       print('Pretraining:', pretraining)
-
-      # TODO: Move this to a parameter in init
-      self.encoder_output_size = loc_net._out_channels[loc_net._depth]
 
       # Spatial transformer localization-network
       self.loc_net = loc_net
-      self.avg_pool = nn.AdaptiveAvgPool2d(output_size=(4, 4))
+
+      if spatial_dims == 2:
+        self.encoder_output_size = loc_net._out_channels[loc_net._depth] * 4 * 4
+        self.avg_pool = nn.AdaptiveAvgPool2d(output_size=(4, 4))
+      elif spatial_dims == 3:
+        self.encoder_output_size = 320 * 5 * 5 * 5
+      else:
+        raise ValueError(f'Invalid spatial_dims: {spatial_dims}, must be 2 or 3')
 
       # Regressor for the threshold
       self.thresh_head = nn.Sequential(
-        nn.Linear(self.encoder_output_size * 4 * 4, 128),
+        nn.Linear(self.encoder_output_size, 128),
         nn.ReLU(True),
         nn.Linear(128, 2)
       )
@@ -134,16 +171,19 @@ class PreCut(nn.Module):
       self.thresh_head[-1].weight.data.zero_()
       self.thresh_head[-1].bias.data.copy_(torch.tensor([0, 1], dtype=torch.float))
 
-      # Regressor for the 3 * 2 affine matrix
+      # Regressor for the affine matrix
       self.stn_head = nn.Sequential(
-        nn.Linear(self.encoder_output_size * 4 * 4, 128),
+        nn.Linear(self.encoder_output_size, 128),
         nn.ReLU(True),
-        nn.Linear(128, 3 * 2)
+        nn.Linear(128, 3 * 2 if spatial_dims == 2 else 3 * 4)
       )
 
       # Initialize to identity transformation
       self.stn_head[-1].weight.data.zero_()
-      self.stn_head[-1].bias.data.copy_(torch.tensor([1, 0, 0, 0, 1, 0], dtype=torch.float))
+      if spatial_dims == 2:
+        self.stn_head[-1].bias.data.copy_(torch.tensor([1, 0, 0, 0, 1, 0], dtype=torch.float))
+      elif spatial_dims == 3:
+        self.stn_head[-1].bias.data.copy_(torch.tensor([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0], dtype=torch.float))
 
   def transform(self, x, theta, size):
     grid = F.affine_grid(theta, size, align_corners=True)
@@ -157,13 +197,19 @@ class PreCut(nn.Module):
     return th_low + th_high - 1
 
   def forward(self, x):
-    xs = self.loc_net(x)[-1]
-    xs = self.avg_pool(xs)
-    xs = xs.view(-1, self.encoder_output_size * 4 * 4)
-
+    original_size = x.shape
+    if self.spatial_dims == 2:
+      xs = self.loc_net(x)[-1]
+      xs = self.avg_pool(xs)
+      xs = xs.view(-1, self.encoder_output_size)
+    elif self.spatial_dims == 3:
+      xs = self.loc_net(x)
+      xs = features = xs[1:][::-1][0]
+      xs = xs.view(-1, self.encoder_output_size)
+    
     threshold = self.thresh_head(xs)
-    th_low = threshold[:, 0].view(-1, 1, 1, 1)
-    th_high = threshold[:, 1].view(-1, 1, 1, 1)
+    th_low = threshold[:, 0].view(-1, *((1,) * (self.spatial_dims + 1)))
+    th_high = threshold[:, 1].view(-1, *((1,) * (self.spatial_dims + 1)))
 
     # Threshold the image
     if not self.pretraining:
@@ -175,16 +221,22 @@ class PreCut(nn.Module):
     # Spatial transformer
 
     theta = self.stn_head(xs)
-    theta = theta.view(-1, 2, 3)
+    if self.spatial_dims == 2:
+      theta = theta.view(-1, 2, 3)
+    elif self.spatial_dims == 3:
+      theta = theta.view(-1, 3, 4)
 
     if not self.pretraining:
       # zoom out to add padding
       theta[:, 0, 0] *= self.stn_zoom_out
       theta[:, 1, 1] *= self.stn_zoom_out
+
       size = list(x.shape)
-      size[-2] = int(size[-2] * 0.5)
-      size[-1] = int(size[-1] * 0.5)
+      #for i in range(self.spatial_dims):
+      #  size[-i - 1] = size[-i - 1] // 2
+
       grid = F.affine_grid(theta, size, align_corners=True)
+
       x = F.grid_sample(x, grid, align_corners=True)
       mask = F.grid_sample(mask, grid, align_corners=True)
       x_th_stn = F.grid_sample(x_th, grid, align_corners=True)
@@ -195,15 +247,19 @@ class PreCut(nn.Module):
     # plt.imshow(x_th_stn[0, 0].detach().cpu().numpy())
     # plt.show()
 
-    row = torch.tensor([0, 0, 1], dtype=theta.dtype, device=theta.device).expand(theta.shape[0], 1, 3)
+
+    row = torch.tensor([0, 0, 1] if self.spatial_dims == 2 else [0, 0, 0, 1], dtype=theta.dtype, device=theta.device)
+    row = row.expand(theta.shape[0], 1, self.spatial_dims + 1)
     theta_sq = torch.cat([theta, row], dim=1)
     try:
-      theta_inv = torch.inverse(theta_sq)[:, :2, :]
+      theta_inv = torch.inverse(theta_sq)[:, :self.spatial_dims, :]
     except:
-      theta_inv = torch.zeros_like(theta_sq)[:, :2, :]
+      theta_inv = torch.zeros_like(theta_sq)[:, :self.spatial_dims, :]
 
     if self.segmentation_model is not None:
-      seg = self.segmentation_model({'img_th_stn': x_th_stn, 'theta_inv': theta_inv})
+      # TODO: Just using original_size will result in wrong number of channels if channels > 1 for either the
+      # input or mask.
+      seg = self.segmentation_model({'img_th_stn': x_th_stn, 'theta_inv': theta_inv}, original_size=original_size)
     else:
       seg = None
 

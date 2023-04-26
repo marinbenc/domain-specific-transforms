@@ -34,7 +34,7 @@ def get_predictions(model, dataset, viz=True):
   ys = []
   ys_pred = []
 
-  loader = DataLoader(dataset, batch_size=8, shuffle=False, num_workers=8)
+  loader = DataLoader(dataset, batch_size=2, shuffle=False, num_workers=0)
 
   model.eval()
   with torch.no_grad():
@@ -52,7 +52,7 @@ def get_predictions(model, dataset, viz=True):
       if isinstance(model, pre_cut.PreCut):
         segmentation = output['seg'].squeeze(1).detach().cpu().numpy()
         # post process
-        segmentation = [utils._thresh(s) for s in segmentation]
+        #segmentation = [utils._thresh(s) for s in segmentation]
         # if segmentation.sum() > 5:
         #   segmentation = cv.morphologyEx(segmentation, cv.MORPH_CLOSE, np.ones((3, 3)))
         #   segmentation = ndimage.binary_fill_holes(segmentation).astype(int)
@@ -64,12 +64,16 @@ def get_predictions(model, dataset, viz=True):
 
         if viz and y_np[0].sum() > 5:
           viz_titles = ['target']
-          viz_images = [target['seg'][0].squeeze()]
+          viz_images = [target['seg'][0].squeeze()[64, ...]]
 
           for key, value in output.items():
-            if value.dim() == 4:
-              viz_titles.append(key)
-              viz_images.append(value[0].squeeze())
+            if value is not None:
+              if value.dim() == 4:
+                viz_titles.append(key)
+                viz_images.append(value[0].squeeze())
+              elif value.dim() == 5:
+                viz_titles.append(key)
+                viz_images.append(value[0].squeeze()[64, ...])
           
           #viz_images.append(output['seg'][0].cpu().squeeze() * 0.5 + target['seg'][0].squeeze() * 0.5)
           #viz_titles.append('combined')
@@ -80,7 +84,7 @@ def get_predictions(model, dataset, viz=True):
         ys_pred += [o for o in output_np]
 
         if viz and y_np[0].sum() > 5:
-          utils.show_torch(imgs=[target['seg'][0].squeeze(), output[0].squeeze()], titles=['target', 'output'])
+          utils.show_torch(imgs=[target['seg'][0].squeeze()[64, ...], output[0].squeeze()[64, ...]], titles=['target', 'output'])
 
   return xs, ys, ys_pred
 
@@ -106,6 +110,7 @@ def calculate_metrics(ys_pred, ys, metrics, subjects=None):
 
   df['subject'] = subjects
   df['subject'] = df['subject'].astype('category')
+  df.set_index(keys='subject', inplace=True)
   for (metric_name, fn) in metrics.items():
     df[metric_name] = [fn(y_pred, y) for (y_pred, y) in zip(ys_pred, ys)]
   
@@ -126,7 +131,7 @@ def test(model_type, dataset, log_name, dataset_folder, save_predictions, viz):
   if model_type == 'unet':
     model = pre_cut.get_unet(test_dataset, device)
   elif model_type == 'precut':
-    model = pre_cut.get_model(segmentation_method='grabcut', dataset=test_dataset)
+    model = pre_cut.get_model(segmentation_method='none', dataset=test_dataset)
   elif model_type == 'precut_unet':
     model = pre_cut.get_model(segmentation_method='cnn', dataset=test_dataset)
 
@@ -135,8 +140,9 @@ def test(model_type, dataset, log_name, dataset_folder, save_predictions, viz):
 
   xs, ys, ys_pred = get_predictions(model, test_dataset, viz=viz)
 
+  os.makedirs(p.join('predictions', log_name), exist_ok=True)
+
   if save_predictions:
-    os.makedirs(p.join('predictions', log_name), exist_ok=True)
     for i in range(len(ys_pred)):
       cv.imwrite(p.join('predictions', log_name, f'{i}.png'), ys_pred[i] * 255)
     
@@ -146,8 +152,10 @@ def test(model_type, dataset, log_name, dataset_folder, save_predictions, viz):
     'rec': utils.recall,
   }
   df = calculate_metrics(ys, ys_pred, metrics, subjects=test_dataset.subject_id_for_idx)
-  if test_dataset.subject_id_for_idx is not None:
-    df = df.groupby('subject').mean()
+
+  df.to_csv(p.join('predictions', log_name, 'metrics.csv'))
+  #if test_dataset.subject_id_for_idx is not None:
+  #  df = df.groupby('subject').mean()
 
   print(df.describe())
 

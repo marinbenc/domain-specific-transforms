@@ -61,13 +61,10 @@ class CNNSegmenter(nn.Module):
     self.segmentation_model = segmentation_model
     self.padding = padding
 
-  def forward(self, x):
+  def forward(self, x, original_size):
     img, theta_inv = x['img_th_stn'], x['theta_inv']
     mask = self.segmentation_model(img)
-    size = list(mask.shape)
-    size[-2] = size[-2] * 2
-    size[-1] = size[-1] * 2
-    grid = F.affine_grid(theta_inv, size, align_corners=True)
+    grid = F.affine_grid(theta_inv, original_size, align_corners=True)
     mask = F.grid_sample(mask, grid, align_corners=True, mode='nearest')
 
     return mask

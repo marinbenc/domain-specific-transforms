@@ -15,6 +15,7 @@ import torch.optim as optim
 import matplotlib.pyplot as plt
 import numpy as np
 from sklearn.model_selection import KFold
+import monai
 
 import data.pre_cut_dataset as pre_cut_dataset
 import data.datasets as data
@@ -34,7 +35,7 @@ def get_model(model_type, log_dir, dataset, device, fold, data_percent, is_trans
   unet_path = p.join(log_dir, f'../unet_dp={int(data_percent * 100)}_t=1', f'unet_best_fold={fold}.pth')
   if model_type == 'precut':
     # precut is pretrained on untransformed images
-    unet_path = p.join(log_dir, f'../unet_dp={int(data_percent * 100)}_NONEXISTANT_t=0', f'unet_best_fold={fold}.pth')
+    unet_path = p.join(log_dir, f'../unet_dp={int(data_percent * 100)}_t=0', f'unet_best_fold={fold}.pth')
 
   print(unet_path)
   if p.exists(unet_path):
@@ -132,7 +133,11 @@ def train(args_object, model_type, batch_size, epochs, lr, dataset, threshold_lo
     valid_loader = DataLoader(valid_dataset, worker_init_fn=worker_init, num_workers=1)
 
     if model_type == 'unet':
-      loss = cnn_seg.DiceLoss()
+      dice_loss = monai.losses.DiceLoss(include_background=False)
+      def loss_fn(pred, target):
+        target = target['seg']
+        return dice_loss(pred, target)
+      loss = loss_fn
     elif model_type == 'precut':
       loss = functools.partial(pre_cut.pre_cut_loss, threshold_loss_weight=threshold_loss_weight)
     elif model_type == 'precut_unet':

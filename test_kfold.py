@@ -42,10 +42,7 @@ def test(model_type, dataset, log_name, dataset_folder, save_predictions, viz, d
     valid_dataset = dataset_class(subset='all', subjects=valid_subjects, pretraining=False, augment=False)
     datasets.append(valid_dataset)
 
-  xs_all = []
-  ys_all = []
-  ys_pred_all = []
-  subjects_all = []
+  dfs = []
 
   for fold, test_dataset in enumerate(datasets):
     if model_type == 'unet':
@@ -61,24 +58,27 @@ def test(model_type, dataset, log_name, dataset_folder, save_predictions, viz, d
     model.load_state_dict(checkpoint['model'])
 
     xs, ys, ys_pred = get_predictions(model, test_dataset, viz=viz)
-    xs_all += xs
-    ys_all += ys
-    ys_pred_all += ys_pred
-    subjects_all += list(test_dataset.subject_id_for_idx)
+    #xs_all += xs
+    #ys_all += ys
+    #ys_pred_all += ys_pred
+    #subjects_all += list(test_dataset.subject_id_for_idx)
 
-  if save_predictions:
-    os.makedirs(p.join('predictions', log_name), exist_ok=True)
-    for i in range(len(ys_pred)):
-      cv.imwrite(p.join('predictions', log_name, f'{i}.png'), ys_pred[i] * 255)
+    if save_predictions:
+      os.makedirs(p.join('predictions', log_name), exist_ok=True)
+      for i in range(len(ys_pred)):
+        cv.imwrite(p.join('predictions', log_name, f'{i}.png'), ys_pred[i] * 255)
     
-  metrics = {
-    'dsc': utils.dsc,
-    'prec': utils.precision,
-    'rec': utils.recall,
-  }
+    metrics = {
+      'dsc': utils.dsc,
+      'prec': utils.precision,
+      'rec': utils.recall,
+    }
 
-  df = calculate_metrics(ys_all, ys_pred_all, metrics, subjects=subjects_all)
-  df = df.groupby(['subject']).mean()
+    df = calculate_metrics(ys, ys_pred, metrics, subjects=list(test_dataset.subject_id_for_idx))
+    dfs.append(df)
+
+  df = pd.concat(dfs)
+  df.to_csv(p.join('predictions', log_name, 'metrics.csv'))
   print(df.describe())
 
   return df

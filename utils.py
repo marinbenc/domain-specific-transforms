@@ -141,13 +141,15 @@ class Trainer:
       input = self._to_device(self.get_input(batch))
       target = self._to_device(self.get_target(batch))
 
-      #show_torch(imgs=[data[0] + 0.5, target[0]])
       self.optimizer.zero_grad()
       output = self.model(input)
       loss = self.loss_fn(output, target)
       loss.backward()
       self.optimizer.step()
       loss_total += loss.item()
+
+      #show_torch(imgs=[input[0].squeeze()[64, ...], output[0].squeeze()[64, ...], target['seg'][0].squeeze()[64, ...]])
+
     
     #self._plot_grad_flow(self.model.named_parameters())
     loss_total /= len(self.train_loader)
