@@ -2,6 +2,7 @@ import data.spleen.spleen_dataset as spleen
 import data.prostate.prostate_dataset as prostate
 import data.heart.heart_dataset as heart
 import data.kidney.kidney_dataset as kidney
+import data.lesion.lesion_dataset as lesion
 
 dataset_to_class = {
   'spleen': spleen.SpleenDataset,
@@ -9,6 +10,8 @@ dataset_to_class = {
   'heart': heart.HeartDataset,
   'kidney': kidney.KidneyDataset,
   'kidney_male': kidney.KidneyDatasetMale,
+  'lesion_isic': lesion.LesionDatasetISIC,
+  'lesion_dermquest': lesion.LesionDatasetDermquest,
 }
 
 dataset_choices = dataset_to_class.keys()

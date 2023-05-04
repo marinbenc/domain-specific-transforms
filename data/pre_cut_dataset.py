@@ -166,28 +166,33 @@ def get_optimal_threshold(image, mask, th_padding=0, th_aug=0):
     th_padding: The padding to increase the window by on each side.
 
   Returns:
-    (low, high): The min and max values for the window.
+    C x 2 array of thresholds (min, max) for each channel.
   """
-  # TODO: Add support for RGB images
   if np.sum(mask) == 0:
-    return image.min(), image.min()
-  roi = image[mask > 0]
-  # TODO: Investigate this. Or use blur?
-  high = np.percentile(roi, 99)
-  low = np.percentile(roi, 1)
+    return np.array([[np.min(image[channel]), np.max(image[channel])] for channel in range(image.shape[0])])
 
-  window_width = high - low
-  padding_value = window_width * th_padding
-  low -= padding_value
-  high += padding_value
+  ths = []
 
-  if th_aug > 0:
-    th_aug_max = window_width * th_aug
-    augs = np.random.uniform(-th_aug_max, th_aug_max, size=2)
-    low += augs[0]
-    high += augs[1]
+  for channel in range(image.shape[0]):
+    roi = image[channel][mask > 0]
+    # TODO: Investigate this. Or use blur?
+    high = np.percentile(roi, 99)
+    low = np.percentile(roi, 1)
+
+    window_width = high - low
+    padding_value = window_width * th_padding
+    low -= padding_value
+    high += padding_value
+
+    if th_aug > 0:
+      th_aug_max = window_width * th_aug
+      augs = np.random.uniform(-th_aug_max, th_aug_max, size=2)
+      low += augs[0]
+      high += augs[1]
+    
+    ths.append([low, high])
   
-  return low, high
+  return np.array(ths)
 
 def WeakSupervisionDataset(pre_cut_dataset, labeled_percent=0.1):
   """
@@ -252,15 +257,15 @@ class PreCutDataset(Dataset):
     th_padding: The padding to add to the threshold.
     return_transformed_img: Whether to return the transformed image or untransformed input.
   """
-  def __init__(self, subset, pretraining, in_channels, out_channels, width, padding, th_padding, augment, stn_zoom_out=1.5, return_transformed_img=False):
+  def __init__(self, subset, pretraining, in_channels, out_channels, width, padding, th_padding, augment, stn_zoom_out=1.15, return_transformed_img=False):
     self.in_channels = in_channels
     self.out_channels = out_channels
     self.width = width
     self.padding = padding
     self.pretraining = pretraining
     self.th_padding = th_padding
-    self.th_aug = 0.05 if pretraining else 0
-    self.bbox_aug = 0.1 if augment and not pretraining else 0
+    self.th_aug = 0.05 if augment and not pretraining else 0
+    self.bbox_aug = 0.15 if augment and not pretraining else 0
     self.subset = subset
     self.augment = augment
     self.stn_zoom_out = stn_zoom_out
@@ -275,7 +280,7 @@ class PreCutDataset(Dataset):
   def _get_augmentation_pretraining(self):
     return A.Compose([
       A.HorizontalFlip(p=0.3),
-      A.GridDistortion(p=0.5, distort_limit=0.2, normalized=True, border_mode=cv.BORDER_CONSTANT, value=0),
+      A.GridDistortion(p=0.5, distort_limit=0.2, border_mode=cv.BORDER_CONSTANT, value=0),
       A.ShiftScaleRotate(p=0.5, rotate_limit=8, scale_limit=0.1, shift_limit=0.1, rotate_method='ellipse', border_mode=cv.BORDER_CONSTANT, value=0),
       # TODO: Try brightness / contrast / gamma
     ])
@@ -303,9 +308,9 @@ class PreCutDataset(Dataset):
   
   def __getitem__(self, idx):
     input, label = self.get_item_np(idx, augmentation=self.get_train_augmentation() if self.augment else None)
-    original_size = input.shape
+    original_size = input.shape[-2:]
 
-    assert input.shape[0] == input.shape[1], 'Input must be square.'
+    assert input.shape[-2] == input.shape[-1], 'Input must be square.'
 
     output_dict = {
       'img_th_stn': None,
@@ -318,59 +323,30 @@ class PreCutDataset(Dataset):
     to_tensor = ToTensorV2()
 
     if self.pretraining:
-      if len(original_size) == 2:
-        augmentation = self._get_augmentation_pretraining()
-        transformed = augmentation(image=input, mask=label)
-        input, label = transformed['image'], transformed['mask']
-      else:
-        augmentation = self._get_augmentation_pretraining_3d()
-        input = np.expand_dims(input, axis=0)
-        label = np.expand_dims(label, axis=0)
-        transformed = augmentation({'image': input, 'mask': label})
-        input = transformed['image'][0].numpy()
-        label = transformed['mask'][0].numpy()
+      augmentation = self._get_augmentation_pretraining()
+      transformed = augmentation(image=input, mask=label)
+      input, label = transformed['image'], transformed['mask']
     
-    if len(input.shape) == 2:
-      input_tensor, label_tensor = to_tensor(image=input, mask=label).values()
-      input_tensor = input_tensor.float()
-      output_dict['seg'] = label_tensor.unsqueeze(0).float()
-      
-      bbox = get_bbox(input, label, padding=self.padding, bbox_aug=self.bbox_aug)
-      theta = get_theta_from_bbox(*bbox, size=original_size[0])
-      output_dict['theta'] = torch.from_numpy(theta)
-    elif len(input.shape) == 3:
-      input_tensor = torch.from_numpy(input).float()
-      label_tensor = torch.from_numpy(label)
-      output_dict['seg'] = label_tensor.unsqueeze(0).float()
-
-      bbox = get_bbox_3d(input, label, padding=self.padding, bbox_aug=self.bbox_aug)
-      theta = get_theta_from_bbox_3d(*bbox, original_size)
-      output_dict['theta'] = torch.from_numpy(theta)
+    input_tensor, label_tensor = to_tensor(image=input.transpose(1, 2, 0), mask=label).values()
+    input_tensor = input_tensor.float()
+    output_dict['seg'] = label_tensor.unsqueeze(0).float()
+    
+    bbox = get_bbox(input, label, padding=self.padding, bbox_aug=self.bbox_aug)
+    theta = get_theta_from_bbox(*bbox, size=original_size[0])
+    output_dict['theta'] = torch.from_numpy(theta)
 
     threshold = get_optimal_threshold(input, label, th_padding=self.th_padding, th_aug=self.th_aug)
     output_dict['threshold'] = torch.tensor(threshold).float()
 
     # Pretraining loss does not use the images, so skip the transformations to save time.
     if not self.pretraining:
-      if len(original_size) == 2:
-        M = get_affine_from_bbox(*bbox, original_size[0])
-        scale = (self.stn_zoom_out - 1) # TODO: Don't hard-code this. This needs to be the same as in pre_cut.
-        M[0, 2] += scale * original_size[1]
-        M[1, 2] += scale * original_size[0]
-        M *= scale
-        input_cropped = cv.warpAffine(input, M, original_size, flags=cv.INTER_LINEAR)
-        label_cropped = cv.warpAffine(label, M, original_size, flags=cv.INTER_NEAREST)
-      else:
-        M = get_affine_from_bbox_3d(*bbox, original_size)
-        scale = (self.stn_zoom_out - 1) # TODO: Don't hard-code this. This needs to be the same as in pre_cut.
-        M[0, 3] += scale * original_size[1]
-        M[1, 3] += scale * original_size[0]
-        M[2, 3] += scale * original_size[2]
-        M *= scale
-        # For 3D transforms, use ndimage. However ndimage inverts the transform, so we need to invert it back.
-        M = np.concatenate([M, np.array([[0, 0, 0, 1]])], axis=0)
-        input_cropped = ndimage.affine_transform(input, np.linalg.inv(M), order=1)
-        label_cropped = ndimage.affine_transform(label, np.linalg.inv(M), order=0)
+      M = get_affine_from_bbox(*bbox, original_size[0])
+      scale = (self.stn_zoom_out - 1) # TODO: Don't hard-code this. This needs to be the same as in pre_cut.
+      M[0, 2] += scale * original_size[1]
+      M[1, 2] += scale * original_size[0]
+      M *= scale
+      input_cropped = cv.warpAffine(input.transpose(1, 2, 0), M, original_size, flags=cv.INTER_LINEAR).transpose(2, 0, 1)
+      label_cropped = cv.warpAffine(label, M, original_size, flags=cv.INTER_NEAREST)
 
       transformed = to_tensor(image=input_cropped, mask=label_cropped)
       input_cropped_tensor, label_cropped_tensor = transformed['image'], transformed['mask']
@@ -379,19 +355,17 @@ class PreCutDataset(Dataset):
         output_dict['seg'] = label_cropped_tensor.unsqueeze(0).float()
 
       input_th_stn = input_cropped.copy()
-      low, high = threshold
-      input_th_stn[input_th_stn < low] = low
-      input_th_stn[input_th_stn > high] = low
-      input_th_stn = (input_th_stn - low) / (high - low + 1e-8)
+      for channel in range(input_th_stn.shape[0]):
+        low, high = threshold[channel]
+        input_th_stn[channel][input_th_stn[channel] < low] = low
+        input_th_stn[channel][input_th_stn[channel] > high] = low
+        input_th_stn[channel] = (input_th_stn[channel] - low) / (high - low + 1e-8)
       output_dict['img_th_stn'] = to_tensor(image=input_th_stn)['image'].float()
 
       #utils.show_images_row([input, input_cropped, label_cropped, input_th_stn])
     
     # print(output_dict['theta'].numpy())
     
-    if len(input.shape) == 3:
-      input_tensor = input_tensor.unsqueeze(0)
-
     # test viz
     # grid = F.affine_grid(output_dict['theta'].unsqueeze(0), input_tensor.unsqueeze(0).size(), align_corners=True)
     # x = F.grid_sample(input_tensor.unsqueeze(0), grid, align_corners=True)[0]
@@ -407,6 +381,6 @@ class PreCutDataset(Dataset):
     if self.return_transformed_img:    
       return output_dict['img_th_stn'], output_dict
     else:
-      #plt.imshow(input_tensor[0][64].numpy() + output_dict['seg'][0][64].numpy())
-      #plt.show()
+      #import data.lesion.lesion_dataset as ld
+      #ld.show_image(input_tensor.numpy(), output_dict['seg'][0].numpy())
       return input_tensor, output_dict

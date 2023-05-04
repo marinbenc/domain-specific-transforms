@@ -140,7 +140,7 @@ class PreCut(nn.Module):
       - 'img_th_stn': STN-transformed image (with thresholding)
       - 'seg': segmentation mask obtained with GrabCut
   """
-  def __init__(self, loc_net, pretraining=False, segmentation_model=None, spatial_dims=2, stn_zoom_out=1.1):
+  def __init__(self, loc_net, pretraining=False, segmentation_model=None, spatial_dims=2, stn_zoom_out=1.15):
       super(PreCut, self).__init__()
 
       self.segmentation_model = segmentation_model
@@ -164,12 +164,12 @@ class PreCut(nn.Module):
       self.thresh_head = nn.Sequential(
         nn.Linear(self.encoder_output_size, 128),
         nn.ReLU(True),
-        nn.Linear(128, 2)
+        nn.Linear(128, 3 * 2) # channels x (min, max)
       )
 
       # Initialize to untresholded image
       self.thresh_head[-1].weight.data.zero_()
-      self.thresh_head[-1].bias.data.copy_(torch.tensor([0, 1], dtype=torch.float))
+      self.thresh_head[-1].bias.data.copy_(torch.tensor([0, 1, 0, 1, 0, 1], dtype=torch.float))
 
       # Regressor for the affine matrix
       self.stn_head = nn.Sequential(
@@ -192,6 +192,8 @@ class PreCut(nn.Module):
 
   def smooth_threshold(self, x, low, high):
     slope = 50
+    low = low[:, :, None, None]
+    high = high[:, :, None, None]
     th_low = 1 / (1 + torch.exp(slope * (low - x)))
     th_high = 1 / (1 + torch.exp(-slope * (high - x)))
     return th_low + th_high - 1
@@ -208,8 +210,9 @@ class PreCut(nn.Module):
       xs = xs.view(-1, self.encoder_output_size)
     
     threshold = self.thresh_head(xs)
-    th_low = threshold[:, 0].view(-1, *((1,) * (self.spatial_dims + 1)))
-    th_high = threshold[:, 1].view(-1, *((1,) * (self.spatial_dims + 1)))
+    threshold = threshold.view(-1, 3, 2)
+    th_low = threshold[:, :, 0]
+    th_high = threshold[:, :, 1]
 
     # Threshold the image
     if not self.pretraining:
@@ -259,7 +262,8 @@ class PreCut(nn.Module):
     if self.segmentation_model is not None:
       # TODO: Just using original_size will result in wrong number of channels if channels > 1 for either the
       # input or mask.
-      seg = self.segmentation_model({'img_th_stn': x_th_stn, 'theta_inv': theta_inv}, original_size=original_size)
+      # TODO - Move back to x_th_stn
+      seg = self.segmentation_model({'img_th_stn': x, 'theta_inv': theta_inv}, original_size=original_size)
     else:
       seg = None
 

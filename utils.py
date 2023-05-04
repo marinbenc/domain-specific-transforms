@@ -148,7 +148,7 @@ class Trainer:
       self.optimizer.step()
       loss_total += loss.item()
 
-      #show_torch(imgs=[input[0].squeeze()[64, ...], output[0].squeeze()[64, ...], target['seg'][0].squeeze()[64, ...]])
+      #show_torch(imgs=[input[0], target['seg'][0]])
 
     
     #self._plot_grad_flow(self.model.named_parameters())
@@ -187,7 +187,7 @@ class Trainer:
       return True
     
     # if (epoch) % 20 == 0:
-    #   show_torch(imgs=[input[0][0], output['img_stn'][0], target['img_stn'][0]])
+    # show_torch(imgs=[input[0], target['seg'][0]])
 
     self.epochs_since_best += 1
     return False

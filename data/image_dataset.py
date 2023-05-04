@@ -9,14 +9,14 @@ import cv2 as cv
 import data.pre_cut_dataset as pre_cut_dataset
 import utils
 
-class SliceDataset(pre_cut_dataset.PreCutDataset):
+class ImageDataset(pre_cut_dataset.PreCutDataset):
   """
-  A dataset for volumetric CT and MRI scans.
+  A dataset for RGB images.
 
   Attributes:
     dataset_folder: The name of the folder containing the dataset.
                     The folder needs to contain train/, valid/ and test/ folders.
-                    Inside, the files need to be named <subject_id>_<slice_number>.npy.
+                    Inside, the files need to be named <subject_id>.npy.
     window_max: The maximum value of the window.
     window_min: The minimum value of the window.
     global_max: The global maximum value (across all images).
@@ -54,7 +54,7 @@ class SliceDataset(pre_cut_dataset.PreCutDataset):
       self.file_names.sort()
     
     if pretraining:
-      # Remove empty slices for pretraining
+      # Remove empty images for pretraining
       total_before_removal = len(self.file_names)
       to_remove = []
 
@@ -63,7 +63,7 @@ class SliceDataset(pre_cut_dataset.PreCutDataset):
         if np.sum(label) < 5:
           to_remove.append(idx)
       
-      print(f'Removing {len(to_remove)} empty slices out of {total_before_removal}.')
+      print(f'Removing {len(to_remove)} empty images out of {total_before_removal}.')
       new_filenames = np.array(self.file_names)
       new_filenames = np.delete(new_filenames, to_remove).tolist()
       self.file_names = new_filenames
@@ -75,7 +75,7 @@ class SliceDataset(pre_cut_dataset.PreCutDataset):
     self.subjects = subjects if subjects is not None else set(self.subject_id_for_idx)
   
   def _get_subject_from_file_name(self, file_name):
-    return '_'.join(file_name.split('/')[-1].split('_')[:-1])
+    return file_name.split('/')[-1].split('.')[0]
   
   def get_train_augmentation(self):
     return A.Compose([

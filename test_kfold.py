@@ -77,6 +77,7 @@ def test(model_type, dataset, log_name, dataset_folder, save_predictions, viz, d
     df = calculate_metrics(ys, ys_pred, metrics, subjects=list(test_dataset.subject_id_for_idx))
     dfs.append(df)
 
+  os.makedirs(p.join('predictions', log_name), exist_ok=True)
   df = pd.concat(dfs)
   df.to_csv(p.join('predictions', log_name, 'metrics.csv'))
   print(df.describe())
