@@ -46,7 +46,7 @@ def get_unet(dataset, device, checkpoint=None):
   if is_3d:
     return get_unet_3d(dataset, device, checkpoint)
   else:
-    unet = smp.Unet('resnet18', in_channels=dataset.in_channels, classes=1, 
+    unet = smp.Unet('resnet18', in_channels=3, classes=1, 
                     activation='sigmoid', decoder_use_batchnorm=True)
                     # TODO: Check if smaller model is better
                     #encoder_depth=3, decoder_channels=(128, 64, 16))

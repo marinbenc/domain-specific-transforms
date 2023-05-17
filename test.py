@@ -47,45 +47,14 @@ def get_predictions(model, dataset, viz=True):
       xs += [x for x in x_np]
 
       data = data.to(device)
-      output = model(data)
+      output = model.forward(data)
 
-      if isinstance(model, pre_cut.PreCut):
-        segmentation = output['seg'].squeeze().detach().cpu().numpy()
-        # post process
-        #segmentation = [utils._thresh(s) for s in segmentation]
-        # if segmentation.sum() > 5:
-        #   segmentation = cv.morphologyEx(segmentation, cv.MORPH_CLOSE, np.ones((3, 3)))
-        #   segmentation = ndimage.binary_fill_holes(segmentation).astype(int)
-        #   # get largest connected component using ndimage
-        #   labels = ndimage.label(segmentation)[0]
-        #   segmentation = (labels == np.argmax(np.bincount(labels.flat)[1:])+1).astype(int)
+      output_np = output.squeeze(1).detach().cpu().numpy()
+      output_np = [utils._thresh(o) for o in output_np]
+      ys_pred += [o for o in output_np]
 
-        #segmentation = [utils._thresh(s) for s in segmentation]
-        ys_pred += [s for s in segmentation]
-
-        if viz and y_np[0].sum() > 5:
-          viz_titles = ['target']
-          viz_images = [target['seg'][0].squeeze()]
-
-          for key, value in output.items():
-            if value is not None:
-              if value.dim() == 4:
-                viz_titles.append(key)
-                viz_images.append(value[0].squeeze())
-              elif value.dim() == 5:
-                viz_titles.append(key)
-                viz_images.append(value[0].squeeze()[64, ...])
-          
-          #viz_images.append(output['seg'][0].cpu().squeeze() * 0.5 + target['seg'][0].squeeze() * 0.5)
-          #viz_titles.append('combined')
-          utils.show_torch(imgs=viz_images, titles=viz_titles, figsize=(20, 10))
-      else:
-        output_np = output.squeeze(1).detach().cpu().numpy()
-        output_np = [utils._thresh(o) for o in output_np]
-        ys_pred += [o for o in output_np]
-
-        if viz and y_np[0].sum() > 5:
-          utils.show_torch(imgs=[target['seg'][0].squeeze(), output[0].squeeze()], titles=['target', 'output'])
+      if viz and y_np[0].sum() > 5:
+        utils.show_torch(imgs=[target['seg'][0].squeeze(), output[0].squeeze()], titles=['target', 'output'])
 
   return xs, ys, ys_pred
 

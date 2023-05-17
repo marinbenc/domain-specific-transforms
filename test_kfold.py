@@ -20,6 +20,7 @@ import utils
 import data.datasets as data
 import data.pre_cut_dataset as pre_cut_dataset
 import pre_cut
+import train_tabe
 
 from test import get_checkpoint, get_predictions, calculate_metrics
 
@@ -39,22 +40,23 @@ def test(model_type, dataset, log_name, dataset_folder, save_predictions, viz, d
 
   for fold, fold_dir, (train_subjects, valid_subjects) in zip(range(len(fold_dirs)), fold_dirs, splits):
     dataset_class = data.get_dataset_class(dataset)
-    valid_dataset = dataset_class(subset='all', subjects=valid_subjects, pretraining=False, augment=False)
+
+    if len(fold_dirs) == 1:
+      all_subjects = dataset_class(subset='all', augment=False).subjects
+      valid_subjects = set(all_subjects) - set(train_subjects)
+    valid_dataset = dataset_class(subset='all', subjects=valid_subjects, augment=False)
     datasets.append(valid_dataset)
 
   dfs = []
 
   for fold, test_dataset in enumerate(datasets):
     if model_type == 'unet':
-      model = pre_cut.get_unet(test_dataset, device)
-    elif model_type == 'precut':
-      model = pre_cut.get_model(segmentation_method='grabcut', dataset=test_dataset)
-    elif model_type == 'precut_unet':
-      #pretrained_unet = p.join('runs', log_name, f'fold{fold}', 'unet_dp=100_t=1', f'unet_best_fold={fold}.pth')
-      #pretrained_precut = p.join('runs', log_name, f'fold{fold}', 'precut_dp=100_t=0', f'precut_best_fold={fold}.pth')
-      model = pre_cut.get_model(segmentation_method='cnn', dataset=test_dataset)
+      #model = train_tabe.get_model(device='cuda', dataset=test_dataset)
+      model = pre_cut.get_unet(dataset, device)
+    else:
+      raise NotImplementedError
 
-    checkpoint = get_checkpoint(model_type, log_name / f'fold{fold}', fold=fold, data_percent=data_percent)
+    checkpoint = get_checkpoint(model_type, log_name / f'fold{fold}', fold=fold)
     model.load_state_dict(checkpoint['model'])
 
     xs, ys, ys_pred = get_predictions(model, test_dataset, viz=viz)

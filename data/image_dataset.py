@@ -111,6 +111,8 @@ class ImageDataset(pre_cut_dataset.PreCutDataset):
     scan = scan.astype(np.float)
     # normalize
     scan = (scan - min) / (max - min)
+    mask = mask.astype(np.float)
+    mask = mask / 255.0
 
     if augmentation is not None:
       transformed = augmentation(image=scan, mask=mask)

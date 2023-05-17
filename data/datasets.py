@@ -11,7 +11,8 @@ dataset_to_class = {
   'kidney': kidney.KidneyDataset,
   'kidney_male': kidney.KidneyDatasetMale,
   'lesion_isic': lesion.LesionDatasetISIC,
-  'lesion_dermquest': lesion.LesionDatasetDermquest,
+  'lesion_dermquest': lesion.LesionDatasetDermQuest,
+  'lesion_dermis': lesion.LesionDatasetDermis,
 }
 
 dataset_choices = dataset_to_class.keys()
@@ -21,18 +22,18 @@ def get_dataset_class(dataset_name):
     raise ValueError(f'Unknown dataset {dataset_name}')
   return dataset_to_class[dataset_name]
 
-def get_datasets(dataset, pretraining=False, return_transformed_img=False):
+def get_datasets(dataset,):
   dataset_class = get_dataset_class(dataset)
-  train_dataset = dataset_class(subset='train', pretraining=pretraining, return_transformed_img=return_transformed_img)
-  val_dataset = dataset_class(subset='valid', pretraining=False, return_transformed_img=return_transformed_img)
+  train_dataset = dataset_class(subset='train', augment=True)
+  val_dataset = dataset_class(subset='valid', augment=False)
   return train_dataset, val_dataset
 
 def get_whole_dataset(dataset, pretraining=False):
   dataset_class = get_dataset_class(dataset)
-  whole_dataset = dataset_class(subset='all', pretraining=pretraining)
+  whole_dataset = dataset_class(subset='all')
   return whole_dataset
 
 def get_test_dataset(dataset):
   dataset_class = get_dataset_class(dataset)
-  test_dataset = dataset_class(subset='test', pretraining=False)
+  test_dataset = dataset_class(subset='test', augment=False)
   return test_dataset

@@ -54,10 +54,10 @@ def save_args(args, folder):
 def save_checkpoint(name, log_dir, model, epoch, optimizer, loss):
     file_name = p.join(log_dir, name)
     torch.save({
-        'epoch': epoch,
+        #'epoch': epoch,
         'model': model.state_dict(),
-        'optimizer': optimizer.state_dict(),
-        'loss': loss
+        #'optimizer': optimizer.state_dict(),
+        #'loss': loss
     }, file_name)
 
 # TODO: Move to separate file
