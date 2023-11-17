@@ -91,37 +91,33 @@ class ScanDataset(pre_cut_dataset.PreCutDataset):
     current_slice_file = self.file_names[idx]
 
     scan = np.load(current_slice_file.replace('label/', 'input/'))
-    mask = np.load(current_slice_file)
-    mask[mask > 0.5] = 1 # TODO: Add multi-class support
+    mask_ = np.load(current_slice_file)
+    mask = np.zeros_like(mask_)
 
-    # WHD -> DHW
-    scan = np.transpose(scan, (2, 1, 0))
-    mask = np.transpose(mask, (2, 1, 0))
+    # order mask labels based on tumor severity
+    mask[mask_ == 2] = 1 # peritumoral edema
+    mask[mask_ == 4] = 2 # GD-enhancing tumor
+    mask[mask_ == 1] = 3 # necrotic and non-enhancing tumor core
     
     min = self.GLOBAL_MIN
     max = self.GLOBAL_MAX
     if self.manual_threshold is not None:
       min, max = self.manual_threshold
+      # TODO: EIther delete or threshold
 
-    scan[scan < min] = min
-    scan[scan > max] = max
-
+    # per-channel normalization
     scan = scan.astype(np.float)
-    # normalize
-    scan = (scan - min) / (max - min)
+    for i in range(scan.shape[0]):
+      min = np.min(scan[i])
+      max = np.max(scan[i])
+      scan[i] = (scan[i] - min) / (max - min)
 
+    mask = mask[None, ...]
     if augmentation is not None:
-      # add channel dim
-      scan = np.expand_dims(scan, axis=0)
-      mask = np.expand_dims(mask, axis=0)
       transformed = augmentation({'image': scan, 'mask': mask})
-      scan = transformed['image'][0].numpy()
-      mask = transformed['mask'][0].numpy()
+      scan = transformed['image'].numpy()
+      mask = transformed['mask'].numpy()
 
-    #plt.imshow(scan[64, ...])
-    #plt.show()
-    #plt.imshow(mask[64, ...])
-    #plt.show()
     return scan, mask
 
 

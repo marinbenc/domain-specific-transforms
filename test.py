@@ -50,7 +50,7 @@ def get_predictions(model, dataset, viz=True):
       output = model(data)
 
       if isinstance(model, pre_cut.PreCut):
-        segmentation = output['seg'].squeeze(1).detach().cpu().numpy()
+        #segmentation = output['seg'].squeeze(1).detach().cpu().numpy()
         # post process
         #segmentation = [utils._thresh(s) for s in segmentation]
         # if segmentation.sum() > 5:
@@ -60,11 +60,11 @@ def get_predictions(model, dataset, viz=True):
         #   labels = ndimage.label(segmentation)[0]
         #   segmentation = (labels == np.argmax(np.bincount(labels.flat)[1:])+1).astype(int)
 
-        ys_pred += [s for s in segmentation]
+        #ys_pred += [s for s in segmentation]
 
         if viz and y_np[0].sum() > 5:
-          viz_titles = ['target']
-          viz_images = [target['seg'][0].squeeze()[64, ...]]
+          viz_titles = ['input', 'target', 'stn_target']
+          viz_images = [data[0][0][..., 64], target['seg'][0].squeeze()[..., 64], target['img_th_stn'][0][..., 64]]
 
           for key, value in output.items():
             if value is not None:
@@ -73,7 +73,7 @@ def get_predictions(model, dataset, viz=True):
                 viz_images.append(value[0].squeeze())
               elif value.dim() == 5:
                 viz_titles.append(key)
-                viz_images.append(value[0].squeeze()[64, ...])
+                viz_images.append(value[0][0].squeeze()[..., 64])
           
           #viz_images.append(output['seg'][0].cpu().squeeze() * 0.5 + target['seg'][0].squeeze() * 0.5)
           #viz_titles.append('combined')

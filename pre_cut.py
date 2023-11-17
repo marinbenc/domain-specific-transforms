@@ -17,11 +17,11 @@ import data
 
 def pre_cut_loss(output, target, threshold_loss_weight=1.0):
   output_theta, target_theta = output['theta'], target['theta']
-  output_thresh, target_thresh = output['threshold'], target['threshold']
-  th_loss = F.mse_loss(output_thresh, target_thresh)
+  #output_thresh, target_thresh = output['threshold'], target['threshold']
+  #th_loss = F.mse_loss(output_thresh, target_thresh)
   stn_loss = F.mse_loss(output_theta, target_theta)
   #print(f'Loss: {stn_loss.item():.4f} + {threshold_loss_weight:.2f} * {th_loss.item():.4f} = {stn_loss.item() + threshold_loss_weight * th_loss.item():.4f}')
-  return stn_loss + threshold_loss_weight * th_loss
+  return stn_loss# + threshold_loss_weight * th_loss
 
 def get_unet_3d(dataset, device, checkpoint=None):
   unet = FlexibleUNet(
@@ -156,7 +156,7 @@ class PreCut(nn.Module):
         self.encoder_output_size = loc_net._out_channels[loc_net._depth] * 4 * 4
         self.avg_pool = nn.AdaptiveAvgPool2d(output_size=(4, 4))
       elif spatial_dims == 3:
-        self.encoder_output_size = 320 * 5 * 5 * 5
+        self.encoder_output_size = 125440//2 # TODO: Don't hardcode this
       else:
         raise ValueError(f'Invalid spatial_dims: {spatial_dims}, must be 2 or 3')
 
@@ -204,7 +204,7 @@ class PreCut(nn.Module):
       xs = xs.view(-1, self.encoder_output_size)
     elif self.spatial_dims == 3:
       xs = self.loc_net(x)
-      xs = features = xs[1:][::-1][0]
+      xs = xs[1:][::-1][0]
       xs = xs.view(-1, self.encoder_output_size)
     
     threshold = self.thresh_head(xs)
@@ -219,7 +219,6 @@ class PreCut(nn.Module):
       x_th = None
     
     # Spatial transformer
-
     theta = self.stn_head(xs)
     if self.spatial_dims == 2:
       theta = theta.view(-1, 2, 3)
@@ -233,13 +232,13 @@ class PreCut(nn.Module):
 
       size = list(x.shape)
       #for i in range(self.spatial_dims):
-      #  size[-i - 1] = size[-i - 1] // 2
+       #size[-i - 1] = size[-i - 1] // 2
 
       grid = F.affine_grid(theta, size, align_corners=True)
-
       x = F.grid_sample(x, grid, align_corners=True)
-      mask = F.grid_sample(mask, grid, align_corners=True)
-      x_th_stn = F.grid_sample(x_th, grid, align_corners=True)
+      #mask = F.grid_sample(mask, grid, align_corners=True)
+      x_th = x
+      x_th_stn = x
     else:
       x_th_stn = None
     

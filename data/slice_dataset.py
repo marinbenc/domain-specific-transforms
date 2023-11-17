@@ -91,10 +91,6 @@ class SliceDataset(pre_cut_dataset.PreCutDataset):
     current_slice_file = self.file_names[idx]
 
     scan = np.load(current_slice_file.replace('label/', 'input/'))
-    if len(scan.shape) == 3:
-      # use the first channel (e.g. for prostate which is a multi-modal dataset)
-      # TODO: Multi-channel support?
-      scan = scan[..., 0]
     mask = np.load(current_slice_file)
     # Just use single class. TODO: Add multi-class support?
     if len(mask.shape) == 3 and mask.shape[0] > 1:

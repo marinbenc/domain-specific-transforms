@@ -34,11 +34,11 @@ def get_affine_from_bbox_3d(z, y, x, d, h, w, original_shape):
   Returns an affine transformation matrix in OpenCV-expected format that
   will crop the image to the bounding box.
   """
-  original_d, original_h, original_w = original_shape
+  original_h, original_w, original_d = original_shape
   scale_x = original_w / w
   scale_y = original_h / h
   scale_z = original_d / d
-  M = np.array([[scale_z, 0, 0, -z * scale_z], [0, scale_y, 0, -y * scale_y], [0, 0, scale_x, -x * scale_x]])
+  M = np.array([[scale_z, 0, 0, -z * scale_z], [0, scale_x, 0, -x * scale_x], [0, 0, scale_y, -y * scale_y]])
   return M
 
 def get_theta_from_bbox(x, y, w, h, size):
@@ -55,12 +55,24 @@ def get_theta_from_bbox(x, y, w, h, size):
   theta = np.array([[1 / scale_x, 0, x_t], [0, 1 / scale_y, y_t]], dtype=np.float32)
   return theta
 
+def get_bbox_from_theta(theta):
+  """
+  Returns the bounding box parameters from an affine transformation matrix
+  in PyTorch-expected format.
+  """
+  theta_inv = np.linalg.inv(theta)
+  w = 2 / theta_inv[0, 0]
+  h = 2 / theta_inv[1, 1]
+  x = -theta_inv[0, 2] / theta_inv[0, 0] * w - w / 2
+  y = -theta_inv[1, 2] / theta_inv[1, 1] * h - h / 2
+  return x, y, w, h
+
 def get_theta_from_bbox_3d(z, y, x, d, h, w, original_shape):
   """
   Returns an affine transformation matrix in PyTorch-expected format that 
   will crop the image to the bounding box.
   """
-  original_d, original_h, original_w = original_shape
+  original_h, original_w, original_d = original_shape
   scale_x = original_w / w
   scale_y = original_h / h
   scale_z = original_d / d
@@ -69,7 +81,7 @@ def get_theta_from_bbox_3d(z, y, x, d, h, w, original_shape):
   y_t = (y + h / 2) / original_h * 2 - 1
   z_t = (z + d / 2) / original_d * 2 - 1
 
-  theta = np.array([[1 / scale_x, 0, 0, x_t], [0, 1 / scale_y, 0, y_t], [0, 0, 1 / scale_z, z_t]], dtype=np.float32)
+  theta = np.array([[1 / scale_z, 0, 0, z_t], [0, 1 / scale_x, 0, x_t], [0, 0, 1 / scale_y, y_t]], dtype=np.float32)
   return theta
 
 def get_bbox(input, label, padding=32, bbox_aug=0):
@@ -125,14 +137,14 @@ def get_bbox_3d(input, label, padding=0, bbox_aug=0):
   Returns:
     z, y, x, d, h, w: bbox parameters
   """
-  label_th = label.copy()
+  label_th = label.copy().squeeze()
   label_th[label_th > 0.5] = 1
   label_th[label_th <= 0.5] = 0
   label_th = label_th.astype(np.uint8)
 
   # use skimage to get 3d bbox
   bbox = skimage.measure.regionprops(label_th)[0].bbox
-  z, y, x, d, h, w = bbox
+  y, x, z, h, w, d = bbox
   w = w - x
   h = h - y
   d = d - z
@@ -152,6 +164,13 @@ def get_bbox_3d(input, label, padding=0, bbox_aug=0):
   h += 2 * padding
   z -= padding
   d += 2 * padding
+
+  # for i in range(z - 10, z + 100, 10):
+  #   slice = label[..., i].astype(np.uint8).squeeze() * 255
+  #   slice = np.stack([slice, slice, slice], axis=-1)
+  #   slice = cv.rectangle(slice, (x, y), (x + w, y + h), (0, 255, 0), 2)
+  #   plt.imshow(slice)
+  #   plt.show()
 
   return z, y, x, d, h, w
 
@@ -300,12 +319,11 @@ class PreCutDataset(Dataset):
 
     return transform
 
-  
   def __getitem__(self, idx):
     input, label = self.get_item_np(idx, augmentation=self.get_train_augmentation() if self.augment else None)
     original_size = input.shape
 
-    assert input.shape[0] == input.shape[1], 'Input must be square.'
+    #assert input.shape[0] == input.shape[1], 'Input must be square.'
 
     output_dict = {
       'img_th_stn': None,
@@ -315,7 +333,10 @@ class PreCutDataset(Dataset):
       'threshold': None,
     }
 
-    to_tensor = ToTensorV2()
+    def to_tensor(img):
+      if len(img.shape) == 2:
+        img = img[None, ...]
+      return torch.from_numpy(img)
 
     if self.pretraining:
       if len(original_size) == 2:
@@ -323,12 +344,11 @@ class PreCutDataset(Dataset):
         transformed = augmentation(image=input, mask=label)
         input, label = transformed['image'], transformed['mask']
       else:
-        augmentation = self._get_augmentation_pretraining_3d()
-        input = np.expand_dims(input, axis=0)
-        label = np.expand_dims(label, axis=0)
-        transformed = augmentation({'image': input, 'mask': label})
-        input = transformed['image'][0].numpy()
-        label = transformed['mask'][0].numpy()
+        pass
+        #augmentation = self._get_augmentation_pretraining_3d()
+        #transformed = augmentation({'image': input, 'mask': label})
+        #input = transformed['image'].numpy()
+        #label = transformed['mask'].numpy()
     
     if len(input.shape) == 2:
       input_tensor, label_tensor = to_tensor(image=input, mask=label).values()
@@ -338,17 +358,17 @@ class PreCutDataset(Dataset):
       bbox = get_bbox(input, label, padding=self.padding, bbox_aug=self.bbox_aug)
       theta = get_theta_from_bbox(*bbox, size=original_size[0])
       output_dict['theta'] = torch.from_numpy(theta)
-    elif len(input.shape) == 3:
+    elif len(input.shape) == 4:
       input_tensor = torch.from_numpy(input).float()
       label_tensor = torch.from_numpy(label)
-      output_dict['seg'] = label_tensor.unsqueeze(0).float()
+      output_dict['seg'] = label_tensor.float()
 
       bbox = get_bbox_3d(input, label, padding=self.padding, bbox_aug=self.bbox_aug)
-      theta = get_theta_from_bbox_3d(*bbox, original_size)
+      theta = get_theta_from_bbox_3d(*bbox, original_size[1:])
       output_dict['theta'] = torch.from_numpy(theta)
 
-    threshold = get_optimal_threshold(input, label, th_padding=self.th_padding, th_aug=self.th_aug)
-    output_dict['threshold'] = torch.tensor(threshold).float()
+    #threshold = get_optimal_threshold(input, label, th_padding=self.th_padding, th_aug=self.th_aug)
+    output_dict['threshold'] = None#torch.tensor(threshold).float()
 
     # Pretraining loss does not use the images, so skip the transformations to save time.
     if not self.pretraining:
@@ -361,52 +381,50 @@ class PreCutDataset(Dataset):
         input_cropped = cv.warpAffine(input, M, original_size, flags=cv.INTER_LINEAR)
         label_cropped = cv.warpAffine(label, M, original_size, flags=cv.INTER_NEAREST)
       else:
-        M = get_affine_from_bbox_3d(*bbox, original_size)
-        scale = (self.stn_zoom_out - 1) # TODO: Don't hard-code this. This needs to be the same as in pre_cut.
-        M[0, 3] += scale * original_size[1]
-        M[1, 3] += scale * original_size[0]
-        M[2, 3] += scale * original_size[2]
-        M *= scale
+        # TODO: THis is wrong. Look at theta from bbox for inspiration on how to fix.
+        # z, y, x, d, h, w = bbox
+        #input_cropped = input[:, y:y+h, x:y+w, z:z+d]
+        #label_cropped = label[:, y:y+h, x:y+w, z:z+d]
+        #scale = (self.stn_zoom_out - 1) # TODO: Don't hard-code this. This needs to be the same as in pre_cut.
+        #M[0, 3] += scale * original_size[3]
+        #M[1, 3] += scale * original_size[1]
+        #M[2, 3] += scale * original_size[2]
+        # M *= scale
         # For 3D transforms, use ndimage. However ndimage inverts the transform, so we need to invert it back.
+        M = get_affine_from_bbox_3d(*bbox, original_size[1:])
         M = np.concatenate([M, np.array([[0, 0, 0, 1]])], axis=0)
+        # input is currently chwd
+        # input_cdhw = np.transpose(input, (0, 3, 1, 2))
+        # label_dhw = np.transpose(label, (2, 0, 1))
         input_cropped = ndimage.affine_transform(input, np.linalg.inv(M), order=1)
         label_cropped = ndimage.affine_transform(label, np.linalg.inv(M), order=0)
+        # slice_sums = np.array([np.sum(label_cropped[..., z]) for z in range(label_cropped.shape[-1])])
+        # max_z = np.argmax(slice_sums)
+        #plt.imshow(label_cropped[0, ..., max_z])
+        #plt.show()
 
-      transformed = to_tensor(image=input_cropped, mask=label_cropped)
-      input_cropped_tensor, label_cropped_tensor = transformed['image'], transformed['mask']
-      output_dict['img_stn'] = input_cropped_tensor
-      if self.return_transformed_img:
-        output_dict['seg'] = label_cropped_tensor.unsqueeze(0).float()
+      #grid = F.affine_grid(output_dict['theta'].unsqueeze(0), input_tensor.unsqueeze(0).size(), align_corners=True)
+      #x = F.grid_sample(input_tensor.unsqueeze(0), grid, align_corners=True)[0]
+      #mask = F.grid_sample(output_dict['seg'].unsqueeze(0), grid, align_corners=True).squeeze()
+      #if self.return_transformed_img:
+      #  output_dict['seg'] = label_cropped_tensor.unsqueeze(0).float()
 
-      input_th_stn = input_cropped.copy()
-      low, high = threshold
-      input_th_stn[input_th_stn < low] = low
-      input_th_stn[input_th_stn > high] = low
-      input_th_stn = (input_th_stn - low) / (high - low + 1e-8)
-      output_dict['img_th_stn'] = to_tensor(image=input_th_stn)['image'].float()
+      #input_th_stn = input_cropped.copy()
+      #low, high = threshold
+      #input_th_stn[input_th_stn < low] = low
+      #input_th_stn[input_th_stn > high] = low
+      #input_th_stn = (input_th_stn - low) / (high - low + 1e-8)
+      #output_dict['img_th_stn'] = x
+      #output_dict['img_stn'] = x
 
       #utils.show_images_row([input, input_cropped, label_cropped, input_th_stn])
     
     # print(output_dict['theta'].numpy())
-    
-    if len(input.shape) == 3:
-      input_tensor = input_tensor.unsqueeze(0)
 
-    # test viz
-    # grid = F.affine_grid(output_dict['theta'].unsqueeze(0), input_tensor.unsqueeze(0).size(), align_corners=True)
-    # x = F.grid_sample(input_tensor.unsqueeze(0), grid, align_corners=True)[0]
-    # mask = F.grid_sample(output_dict['seg'].unsqueeze(0), grid, align_corners=True)[0]
-    # plt.imshow(x.squeeze()[64, ...].numpy())
-    # plt.show()
-    # plt.imshow(mask.squeeze()[64, ...].numpy())
-    # plt.show()
 
     # delete None values
     output_dict = {k: v for k, v in output_dict.items() if v is not None}
-    
     if self.return_transformed_img:    
       return output_dict['img_th_stn'], output_dict
     else:
-      #plt.imshow(input_tensor[0][64].numpy() + output_dict['seg'][0][64].numpy())
-      #plt.show()
       return input_tensor, output_dict

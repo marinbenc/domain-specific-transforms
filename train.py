@@ -56,7 +56,8 @@ def get_model(model_type, log_dir, dataset, device, fold, data_percent, is_trans
 
   return model
 
-def train(args_object, model_type, batch_size, epochs, lr, dataset, threshold_loss_weight, log_name, device, folds, data_percent, overwrite, train_on_transformed_imgs):
+def train(args_object, model_type, batch_size, epochs, lr, dataset, threshold_loss_weight, log_name, device, folds, 
+          data_percent, overwrite, train_on_transformed_imgs, workers):
   def worker_init(worker_id):
     np.random.seed(2022 + worker_id)
   os.makedirs(name=f'runs/{log_name}', exist_ok=True)
@@ -129,8 +130,8 @@ def train(args_object, model_type, batch_size, epochs, lr, dataset, threshold_lo
 
     utils.save_args(args_object, log_dir)
 
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, worker_init_fn=worker_init, num_workers=1)
-    valid_loader = DataLoader(valid_dataset, worker_init_fn=worker_init, num_workers=1)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, worker_init_fn=worker_init, num_workers=workers)
+    valid_loader = DataLoader(valid_dataset, worker_init_fn=worker_init, num_workers=workers)
 
     if model_type == 'unet':
       dice_loss = monai.losses.DiceLoss(include_background=False)
@@ -230,6 +231,9 @@ if __name__ == '__main__':
   )
   parser.add_argument(
     '--train-on-transformed-imgs', action='store_true', help="train on transformed images"
+  )
+  parser.add_argument(
+    '--workers', type=int, default=8, help='number of workers for data loading',
   )
   # TODO: Add --from-json option to load args from json file
 
