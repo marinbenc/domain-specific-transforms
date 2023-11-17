@@ -34,7 +34,7 @@ torch.manual_seed(2022)
 best_loss = float('inf')
 
 def get_model(dataset):
-    loc_net = seg.get_model(dataset).encoder
+    loc_net = seg.get_model(dataset)
     model = stn_model.STN(loc_net=loc_net, output_theta=False)
     model.to('cuda')
     return model
@@ -59,11 +59,8 @@ def train_stn(batch_size, epochs, lr, dataset, subset, log_name):
     if p.exists(seg_path):
         print('Transfer learning with: ' + seg_path)
         saved_seg = torch.load(p.join(log_dir, '../seg', 'seg_best.pth'))
-        encoder_dict = {key.replace('encoder.', ''): value 
-                for (key, value) in saved_seg['model'].items()
-                if 'encoder.' in key}
-        # pretrain with the STN model
-        model.loc_net.load_state_dict(encoder_dict)
+        # pretrain with seg model
+        model.loc_net.load_state_dict(saved_seg['model'])
     else:
         print('No saved SEG model exists, skipping transfer learning...')
 
@@ -76,7 +73,7 @@ def train_stn(batch_size, epochs, lr, dataset, subset, log_name):
     smoothness = losses.IdentityTransformLoss()
 
     def calculate_loss(output, target):
-        output_img, ouput_theta = output
+        output_mask, output_img, ouput_theta = output
         smoothness_loss = smoothness(ouput_theta)
         img_loss = loss(output_img, target)
         return img_loss# + smoothness_loss * 0.1

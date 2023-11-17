@@ -18,6 +18,7 @@ class TransformedSegmentation(nn.Module):
       super(TransformedSegmentation, self).__init__()
 
       stn.output_theta = True
+      self.output_stn_mask = True
 
       # Spatial transformer localization-network
       self.stn = stn
@@ -27,7 +28,7 @@ class TransformedSegmentation(nn.Module):
 
   def forward(self, x):
     # transform image
-    x_t, theta_out = self.stn(x)
+    y_loc_net, x_t, theta_out = self.stn(x)
     # segment transformed image
     y_t = self.seg(x_t)
     
@@ -44,8 +45,14 @@ class TransformedSegmentation(nn.Module):
 
     # if self._iters % 100 == 0:
     #   utils.show_torch(imgs=[x[0] + 0.5, x_t[0] + 0.5, y_t[0], y[0]])
-    
+
+    outputs = [y]
+    if self.output_stn_mask:
+      outputs = [y_loc_net] + outputs
     if self.output_theta:
-      return y, theta_out
+      outputs = outputs + [theta_out]
+
+    if len(outputs) == 1:
+      return outputs[0]
     else:
-      return y
+      return tuple(outputs)

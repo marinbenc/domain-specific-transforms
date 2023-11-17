@@ -17,7 +17,7 @@ class STN(nn.Module):
 
   Attributes:
     loc_net: the localization network
-    output_theta: if `True`, the model output will be `(y, theta)`, otherwise it will be `y`
+    output_theta: if `True`, the model output will be `(y_mask, y, theta)`, otherwise it will be `(y_mask, y)`
   """
   def __init__(self, loc_net, output_theta = False):
       super(STN, self).__init__()
@@ -53,8 +53,12 @@ class STN(nn.Module):
   # Spatial transformer network forward function
   def stn(self, x):
       x_original = x.detach().clone()
-      xs = self.loc_net(x)[-1]
-      
+      features = self.loc_net.encoder(x)
+
+      decoder_output = self.loc_net.decoder(*features)
+      y_mask = self.loc_net.segmentation_head(decoder_output)
+
+      xs = features[-1]      
       xs = self.avg_pool(xs)
       xs = xs.view(-1, 512 * 4 * 4)
       theta = self.loc_head(xs)
@@ -73,14 +77,14 @@ class STN(nn.Module):
 
       #utils.show_torch([x_original[0], x[0]])
 
-      return x, theta
+      return y_mask, x, theta
 
   def forward(self, x):
-      x, theta = self.stn(x)
+      y_mask, x, theta = self.stn(x)
       if self.output_theta:
-        return (x, theta)
+        return (y_mask, x, theta)
       else:
-        return x
+        return (y_mask, x)
 
 class STN_CNN(nn.Module):
   """

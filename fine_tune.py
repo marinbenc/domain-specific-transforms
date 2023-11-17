@@ -80,10 +80,11 @@ def fine_tune(batch_size, epochs, lr, dataset, subset, log_name):
     smoothness = losses.IdentityTransformLoss()
 
     def calculate_loss(output, target):
-        output_img, ouput_theta = output
-        smoothness_loss = smoothness(ouput_theta)
+        output_loc_img, output_img, ouput_theta = output
+        #smoothness_loss = smoothness(ouput_theta)
+        loc_img_loss = loss_fn(output_loc_img, target)
         img_loss = loss_fn(output_img, target)
-        return img_loss + smoothness_loss * 0.1
+        return img_loss + loc_img_loss #smoothness_loss * 0.1
 
     writer = SummaryWriter(log_dir=f'{log_dir}/fine')
     for epoch in range(1, epochs + 1):

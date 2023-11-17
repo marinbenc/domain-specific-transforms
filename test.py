@@ -143,6 +143,7 @@ def test(model_type, dataset, log_name, dataset_folder, subset, transformed_imag
       model = seg.get_model(test_dataset)
     elif model_type == 'fine':
       model = fine_tune.get_model(test_dataset, log_name)
+      model.output_stn_mask = False
 
     checkpoint = get_checkpoint(model_type, log_name)
     model.load_state_dict(checkpoint['model'])
