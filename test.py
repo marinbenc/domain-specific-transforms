@@ -17,6 +17,8 @@ import data.datasets as data
 import stn.stn_dataset as stn_dataset
 import stn.train_stn as stn
 import fine_tune
+import isic_challenge_scoring as isic
+from isic_challenge_scoring.load_image import ImagePair
 
 device = 'cuda'
 
@@ -112,6 +114,20 @@ def calculate_metrics(ys_pred, ys, metrics):
 
   return df
 
+def isic_metric(ys_pred, y):
+  ys_pred = ys_pred.astype(np.uint8)
+  y = y.astype(np.uint8)
+  ys_pred = ys_pred * 255
+  y = y * 255
+
+  cm = isic.confusion.create_binary_confusion_matrix(
+    truth_binary_values=y > 128,
+    prediction_binary_values=ys_pred > 128,
+    name='0')
+  
+  th_jacc = isic.metrics.binary_threshold_jaccard(cm, threshold=0.65)
+  return th_jacc
+
 def test(model_type, dataset, log_name, dataset_folder, subset, transformed_images, save_predictions):
   train_dataset, valid_dataset = data.get_datasets(dataset, subset, augment=False, stn_transformed=transformed_images)
   whole_dataset = data.get_whole_dataset(dataset, subset, stn_transformed=transformed_images)
@@ -148,6 +164,7 @@ def test(model_type, dataset, log_name, dataset_folder, subset, transformed_imag
     checkpoint = get_checkpoint(model_type, log_name)
     model.load_state_dict(checkpoint['model'])
 
+  model.to(device)
   xs, ys, ys_pred = get_predictions(model, test_dataset)
 
   if save_predictions:
@@ -159,6 +176,7 @@ def test(model_type, dataset, log_name, dataset_folder, subset, transformed_imag
     'dsc': utils.dsc,
     'prec': utils.precision,
     'rec': utils.recall,
+    'th_jacc': isic_metric
   }
   df = calculate_metrics(ys, ys_pred, metrics)
 

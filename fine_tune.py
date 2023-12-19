@@ -41,17 +41,23 @@ device = 'cuda'
 def get_model(dataset, log_name):
   stn_model = stn.get_model(dataset)
   stn_checkpoint_f = p.join('runs', log_name, 'stn', 'stn_best.pth')
-  stn_checkpoint = torch.load(stn_checkpoint_f)
-  stn_model.load_state_dict(stn_checkpoint['model'])
-#   for param in stn_model.parameters():
-#     param.requires_grad = False
-
-  # TODO: Check if loss function is the one shifting the STN
-
-  seg_model = seg.get_model(dataset)
+  if p.exists(stn_checkpoint_f):
+    stn_checkpoint = torch.load(stn_checkpoint_f)
+    stn_model.load_state_dict(stn_checkpoint['model'])
+  else:
+    print('No stn checkpoint found, using random weights')
+  
+  # add one more channel for the STN output mask
+  seg_model = seg.get_model(dataset, num_channels=dataset.in_channels)
   seg_checkpoint_f = p.join('runs', log_name, 'seg', 'seg_best.pth')
-  seg_checkpoint = torch.load(seg_checkpoint_f)
-  seg_model.load_state_dict(seg_checkpoint['model'])
+  if p.exists(seg_checkpoint_f):
+    seg_checkpoint = torch.load(seg_checkpoint_f)
+    seg_model.load_state_dict(seg_checkpoint['model'])
+    stn_model.loc_net.load_state_dict(seg_checkpoint['model'])
+  else:
+    print('No seg checkpoint found, using random weights')
+
+  seg_model.encoder.set_in_channels(dataset.in_channels + 1)
 
   model = m.TransformedSegmentation(stn_model, seg_model)
   return model
@@ -70,6 +76,7 @@ def fine_tune(batch_size, epochs, lr, dataset, subset, log_name):
     val_loader = DataLoader(val_dataset, worker_init_fn=worker_init)
 
     model = get_model(train_dataset, log_name)
+    model.to(device)
     # Output the STN theta to calculate smoothness loss
     model.output_theta = True
 

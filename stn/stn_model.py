@@ -75,16 +75,18 @@ class STN(nn.Module):
       grid = F.affine_grid(theta, x.size(), align_corners=False)
       x = F.grid_sample(x, grid)
 
+      y_mask_t = F.grid_sample(y_mask, grid)
+
       #utils.show_torch([x_original[0], x[0]])
 
-      return y_mask, x, theta
+      return y_mask, y_mask_t, x, theta
 
   def forward(self, x):
-      y_mask, x, theta = self.stn(x)
+      y_mask, y_mask_t, x, theta = self.stn(x)
       if self.output_theta:
-        return (y_mask, x, theta)
+        return (y_mask, y_mask_t, x, theta)
       else:
-        return (y_mask, x)
+        return (y_mask, y_mask_t, x)
 
 class STN_CNN(nn.Module):
   """

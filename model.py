@@ -1,8 +1,9 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
 import numpy as np
+import matplotlib.pyplot as plt
+
 import utils
 
 class TransformedSegmentation(nn.Module):
@@ -28,9 +29,24 @@ class TransformedSegmentation(nn.Module):
 
   def forward(self, x):
     # transform image
-    y_loc_net, x_t, theta_out = self.stn(x)
+    y_loc_net, y_loc_net_t, x_t, theta_out = self.stn(x)
     # segment transformed image
-    y_t = self.seg(x_t)
+
+
+    # plt.imshow(y_loc_net[0, 0].detach().cpu().numpy())
+    # plt.title('y_loc_net')
+    # plt.show()
+    # plt.imshow(y_loc_net_t[0, 0].detach().cpu().numpy())
+    # plt.title('y_loc_net_t')
+    # plt.show()
+
+    # two channels, y_loc_net_t is the mask and x_t is the transformed image
+    seg_x = torch.cat([y_loc_net_t, x_t], dim=1)
+    y_t = self.seg(seg_x)
+
+    # plt.imshow(y_t[0, 0].detach().cpu().numpy())
+    # plt.title('y_t')
+    # plt.show()
     
     # make theta square
     row = torch.tensor([0, 0, 1], dtype=theta_out.dtype, device=theta_out.device).expand(theta_out.shape[0], 1, 3)
