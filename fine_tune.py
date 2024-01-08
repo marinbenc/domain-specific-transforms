@@ -61,40 +61,40 @@ def get_model(dataset, log_name):
 
   model = m.TransformedSegmentation(stn_model, seg_model)
   return model
-
     
-def fine_tune(batch_size, epochs, lr, dataset, subset, log_name):
+def fine_tune(batch_size, epochs, lr, folds, dataset, subset, log_name):
     def worker_init(worker_id):
         np.random.seed(2022 + worker_id)
 
     os.makedirs(log_dir/'fine', exist_ok=True)
 
+    datasets = data.get_kfolds_datasets(dataset, folds, log_name)
 
-    train_dataset, val_dataset = data.get_datasets(dataset, subset)
+    for fold, (train_dataset, val_dataset) in enumerate(datasets):
+      print(f'Fold {fold}')
+      train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, worker_init_fn=worker_init)
+      val_loader = DataLoader(val_dataset, worker_init_fn=worker_init)
 
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, worker_init_fn=worker_init)
-    val_loader = DataLoader(val_dataset, worker_init_fn=worker_init)
+      model = get_model(train_dataset, log_name)
+      model.to(device)
+      model.output_theta = True
 
-    model = get_model(train_dataset, log_name)
-    model.to(device)
-    model.output_theta = True
+      optimizer = optim.Adam(model.parameters(), lr=lr)
+      scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=5, verbose=True)
 
-    optimizer = optim.Adam(model.parameters(), lr=lr)
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=5, verbose=True)
+      loss_fn = loss.DiceLoss()
+      smoothness = losses.IdentityTransformLoss()
 
-    loss_fn = loss.DiceLoss()
-    smoothness = losses.IdentityTransformLoss()
+      def calculate_loss(output, target):
+          output_loc_img, output_img, ouput_theta = output
+          loc_img_loss = loss_fn(output_loc_img, target)
+          img_loss = loss_fn(output_img, target)
+          return img_loss + loc_img_loss
 
-    def calculate_loss(output, target):
-        output_loc_img, output_img, ouput_theta = output
-        loc_img_loss = loss_fn(output_loc_img, target)
-        img_loss = loss_fn(output_img, target)
-        return img_loss + loc_img_loss
-
-    writer = SummaryWriter(log_dir=f'{log_dir}/fine')
-    for epoch in range(1, epochs + 1):
-      utils.train(model, calculate_loss, optimizer, epoch, train_loader, val_loader, writer=writer, checkpoint_name='fine_best.pth', scheduler=scheduler)
-    writer.close()
+      writer = SummaryWriter(log_dir=f'{log_dir}/fine/fold_{fold}')
+      for epoch in range(1, epochs + 1):
+        utils.train(model, calculate_loss, optimizer, epoch, train_loader, val_loader, writer=writer, checkpoint_name='fine_best.pth', scheduler=scheduler)
+      writer.close()
 
 #TODO: Save arguments json file
 
@@ -125,6 +125,9 @@ if __name__ == '__main__':
     )
     parser.add_argument(
         '--subset', type=str, choices=data.lesion_subsets, default='isic', help='which dataset to use'
+    )
+    parser.add_argument(
+        '--folds', type=int, default=5, help='number of folds to use for cross validation',
     )
     parser.add_argument(
         '--log-name', type=str, default=datetime.datetime.now().strftime("%Y-%m-%d-%H:%M:%S"), help='name of folder where checkpoints are stored',

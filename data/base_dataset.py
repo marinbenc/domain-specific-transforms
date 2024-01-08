@@ -23,13 +23,13 @@ class BaseDataset(Dataset):
   in_channels = 1
   out_channels = 1
 
-  def __init__(self, directory, subset='', augment=True, stn_transformed=False):
+  def __init__(self, directory, subset='', augment=True, stn_transformed=False, subjects=None):
     self.mode = directory
     self.augment = augment
     self.subset = subset
     self.stn_transformed = stn_transformed
 
-    if directory == 'all':
+    if directory == 'all' or subjects is not None:
       directories = ['train', 'valid', 'test']
     else:
       directories = [directory]
@@ -42,6 +42,9 @@ class BaseDataset(Dataset):
       directory_files.sort()
       self.file_names += directory_files
       self.file_names.sort()
+
+    if subjects is not None:
+      self.file_names = [f for f in self.file_names if any([s in f for s in subjects])]
 
   def get_item_np(self, idx):
     """

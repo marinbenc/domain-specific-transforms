@@ -44,6 +44,8 @@ def train_seg(batch_size, epochs, lr, dataset, subset, log_name, untransformed_i
 
     os.makedirs(log_dir/'seg', exist_ok=True)
 
+    datasets = data.get_kfolds_datasets(dataset, subset, k=5, stn_transformed=not untransformed_images)
+
     train_dataset, val_dataset = data.get_datasets(dataset, subset, stn_transformed=not untransformed_images)
 
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, worker_init_fn=worker_init)
