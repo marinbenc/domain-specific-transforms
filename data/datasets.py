@@ -2,7 +2,7 @@ import data.lesion.lesion_dataset as lesion
 import data.liver.liver_dataset as liver
 
 dataset_choices = ['lesion', 'liver']
-lesion_subsets = ['isic', 'dermquest', 'dermis']
+lesion_subsets = ['isic', 'dermquest', 'dermis', 'ph2']
 
 def get_datasets(dataset, subset='isic', augment=True, stn_transformed=False):
   if dataset == 'lesion':

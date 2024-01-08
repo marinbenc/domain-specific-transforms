@@ -6,6 +6,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 import numpy as np
+import matplotlib.pyplot as plt
 
 import segmentation_models_pytorch as smp
 
@@ -82,7 +83,11 @@ class STN(nn.Module):
       return y_mask, y_mask_t, x, theta
 
   def forward(self, x):
+      # plt.imshow(x[0].detach().cpu().numpy().transpose(1, 2, 0) + 0.5)
+      # plt.show()
       y_mask, y_mask_t, x, theta = self.stn(x)
+      # plt.imshow(x[0].detach().cpu().numpy().transpose(1, 2, 0) + 0.5)
+      # plt.show()
       if self.output_theta:
         return (y_mask, y_mask_t, x, theta)
       else:
