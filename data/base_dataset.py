@@ -43,8 +43,8 @@ class BaseDataset(Dataset):
       self.file_names += directory_files
       self.file_names.sort()
 
-    if subjects is not None:
-      self.file_names = [f for f in self.file_names if any([s in f for s in subjects])]
+    if subjects is not None and subjects != 'all':
+      self.file_names = [f for f in self.file_names if p.basename(f) in subjects]
 
   def get_item_np(self, idx):
     """

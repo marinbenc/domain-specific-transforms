@@ -34,45 +34,38 @@ device = 'cuda'
 def get_model(dataset, num_channels=-1):
     if num_channels == -1:
         num_channels = dataset.in_channels
-    model = smp.Unet('resnet18', in_channels=num_channels, classes=1, activation='sigmoid')
+    model = smp.Unet('resnet34', in_channels=num_channels, classes=1, activation='sigmoid')
     model.to('cuda')
     return model
 
-def train_seg(batch_size, epochs, lr, dataset, subset, log_name, untransformed_images):
+def train_seg(batch_size, epochs, lr, dataset, subset, log_name, folds):
     def worker_init(worker_id):
         np.random.seed(2022 + worker_id)
 
-    os.makedirs(log_dir/'seg', exist_ok=True)
+    os.makedirs(f'runs/{log_name}/seg', exist_ok=True)
 
-    datasets = data.get_kfolds_datasets(dataset, subset, k=5, stn_transformed=not untransformed_images)
+    datasets = data.get_kfolds_datasets(dataset, subset, folds, log_name)
 
-    train_dataset, val_dataset = data.get_datasets(dataset, subset, stn_transformed=not untransformed_images)
+    for fold, (train_dataset, val_dataset) in enumerate(datasets):
+        print(f'Fold {fold}')
 
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, worker_init_fn=worker_init)
-    val_loader = DataLoader(val_dataset, worker_init_fn=worker_init)
+        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, worker_init_fn=worker_init)
+        val_loader = DataLoader(val_dataset, worker_init_fn=worker_init)
 
-    model = get_model(train_dataset)
+        model = get_model(train_dataset)
 
-    # stn_path = p.join(log_dir, 'stn', 'stn_best.pth')
-    # if p.exists(stn_path):
-    #     print('Transfer learning with: ' + stn_path)
-    #     saved_stn = torch.load(p.join(log_dir, 'stn', 'stn_best.pth'))
-    #     encoder_dict = {key.replace('loc_net.', ''): value 
-    #             for (key, value) in saved_stn['model'].items()
-    #             if 'loc_net.' in key}
-    #     # pretrain with the STN model
-    #     model.encoder.load_state_dict(encoder_dict)
-    # else:
-    #     print('No saved STN model exists, skipping transfer learning...')
+        loss_fn = loss.DiceLoss()
+        optimizer = optim.Adam(model.parameters(), lr=lr)
+        scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=5, verbose=True)
 
-    loss_fn = loss.DiceLoss()
-    optimizer = optim.Adam(model.parameters(), lr=lr)
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=5, verbose=True)
+        os.makedirs(f'runs/{log_name}/seg/fold_{fold}', exist_ok=True)
 
-    writer = SummaryWriter(log_dir=f'{log_dir}/seg')
-    for epoch in range(1, epochs + 1):
-      utils.train(model, loss_fn, optimizer, epoch, train_loader, val_loader, writer=writer, checkpoint_name='seg_best.pth', scheduler=scheduler)
-    writer.close()
+        writer = SummaryWriter(log_dir=f'runs/{log_name}/seg/fold_{fold}')
+        for epoch in range(epochs):
+            early_stop = utils.train(model, loss_fn, optimizer, epoch, train_loader, val_loader, writer=writer, checkpoint_name='seg_best.pth', scheduler=scheduler)
+            if early_stop:
+                break
+        writer.close()
 
 #TODO: Save arguments json file
 
@@ -105,10 +98,10 @@ if __name__ == '__main__':
         '--subset', type=str, choices=data.lesion_subsets, default='isic', help='which dataset to use'
     )
     parser.add_argument(
-        '--untransformed-images', action='store_true', help="don't use GT STN-transformed images in the training dataset"
+        '--log-name', type=str, default=datetime.datetime.now().strftime("%Y-%m-%d-%H:%M:%S"), help='name of folder where checkpoints are stored',
     )
     parser.add_argument(
-        '--log-name', type=str, default=datetime.datetime.now().strftime("%Y-%m-%d-%H:%M:%S"), help='name of folder where checkpoints are stored',
+        '--folds', type=int, default=5, help='number of folds to use for cross validation',
     )
     args = parser.parse_args()
     log_dir = Path(f'runs/{args.log_name}')

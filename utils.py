@@ -86,8 +86,10 @@ def save_checkpoint(name, log_dir, model, epoch, optimizer, loss):
 
 def train(model, loss_fn, optimizer, epoch, train_loader, val_loader, writer, checkpoint_name, scheduler=None):
     global best_loss
+    global best_epoch
     if epoch == 0:
       best_loss = float('inf')
+      best_epoch = 0
     
     model.train()
     loss_total = 0
@@ -126,10 +128,13 @@ def train(model, loss_fn, optimizer, epoch, train_loader, val_loader, writer, ch
     if loss_total < best_loss and True:
         print('Saving new best model...')
         best_loss = loss_total
+        best_epoch = epoch
         save_checkpoint(checkpoint_name, writer.log_dir, model, epoch, optimizer, loss_total)
 
-    #if (epoch - 1) % 10 == 0:
-    #  show_torch(imgs=[data[0] + 0.5, output[0] + 0.5, target[0] + 0.5])
+    if (epoch > 0) and (epoch - best_epoch) > 10:
+      return True
+
+    return False
 
 def _thresh(img):
   img[img > 0.5] = 1

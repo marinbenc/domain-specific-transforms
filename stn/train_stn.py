@@ -74,9 +74,8 @@ def train_stn(batch_size, epochs, lr, dataset, subset, log_name):
 
     def calculate_loss(output, target):
         output_mask, output_img, ouput_theta = output
-        smoothness_loss = smoothness(ouput_theta)
         img_loss = loss(output_img, target)
-        return img_loss# + smoothness_loss * 0.1
+        return img_loss + smoothness_loss * 0.1
 
     for epoch in range(1, epochs + 1):
         utils.train(model, calculate_loss, optimizer, epoch, train_loader, valid_loader, writer=writer, checkpoint_name='stn_best.pth', scheduler=scheduler)

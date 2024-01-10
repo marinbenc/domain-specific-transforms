@@ -1,3 +1,8 @@
+import os.path as p
+import json
+
+from sklearn.model_selection import KFold
+
 import data.lesion.lesion_dataset as lesion
 import data.liver.liver_dataset as liver
 
@@ -37,9 +42,10 @@ def get_valid_dataset(dataset, subset, subjects):
     valid_dataset = lesion.LesionDataset(directory='all', augment=False, subset=subset, subjects=subjects)
   return valid_dataset
 
-def get_kfolds_datasets(dataset, k, log_name):
+def get_kfolds_datasets(dataset, subset, k, log_name):
     whole_dataset = get_whole_dataset(dataset, subset)
-    subject_ids = list(whole_dataset.subjects)
+    subject_ids = list(whole_dataset.file_names)
+    subject_ids = [p.basename(f) for f in subject_ids]
     subject_ids = sorted(subject_ids)
 
     existing_split = p.join('runs', log_name, 'subjects.json')
@@ -49,7 +55,7 @@ def get_kfolds_datasets(dataset, k, log_name):
             json_dict = json.load(f)
             splits = zip(json_dict['train_subjects'], json_dict['valid_subjects'])
     else:
-        kfold = KFold(n_splits=folds, shuffle=True, random_state=2022)
+        kfold = KFold(n_splits=k, shuffle=True, random_state=2022)
         splits = list(kfold.split(subject_ids))
         # convert from indices to subject ids
         splits = [([subject_ids[idx] for idx in train_idx], [subject_ids[idx] for idx in valid_idx]) for train_idx, valid_idx in splits]

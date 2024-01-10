@@ -22,8 +22,8 @@ from isic_challenge_scoring.load_image import ImagePair
 
 device = 'cuda'
 
-def get_checkpoint(model_type, log_name):
-  checkpoint = p.join('runs', log_name, model_type, f'{model_type}_best.pth')  
+def get_checkpoint(model_type, log_name, fold):
+  checkpoint = p.join('runs', log_name, model_type, f'fold_{fold}', f'{model_type}_best.pth')  
   return torch.load(checkpoint)
 
 # def get_stn_to_seg_predictions(stn_model, seg_model, dataset):
@@ -128,40 +128,29 @@ def isic_metric(ys_pred, y):
   th_jacc = isic.metrics.binary_threshold_jaccard(cm, threshold=0.65)
   return th_jacc
 
-def test(model_type, dataset, log_name, dataset_folder, subset, transformed_images, save_predictions):
-  train_dataset, valid_dataset = data.get_datasets(dataset, subset, augment=False, stn_transformed=transformed_images)
-  whole_dataset = data.get_whole_dataset(dataset, subset, stn_transformed=transformed_images)
-  test_dataset = data.get_test_dataset(dataset, subset, stn_transformed=transformed_images)
-
-  if dataset_folder == 'train':
-    test_dataset = train_dataset
-  elif dataset_folder == 'valid':
-    test_dataset = valid_dataset
-  elif dataset_folder == 'all':
-    test_dataset = whole_dataset
-
+def test(model_type, log_name, fold, test_dataset, save_predictions):
   if model_type == 'stn':
     model = stn.get_model(test_dataset)
-    checkpoint = get_checkpoint(model_type, log_name)
+    checkpoint = get_checkpoint(model_type, log_name, fold)
     model.load_state_dict(checkpoint['model'])
     test_dataset = stn_dataset.STNDataset(test_dataset)
     run_stn_predictions(model, test_dataset)
     exit()
 
   if model_type == 'stn-to-seg':
-    model = fine_tune.get_model(test_dataset, log_name)
-    stn_checkpoint = get_checkpoint('stn', log_name)
-    seg_checkpoint = get_checkpoint('seg', log_name)
+    model = fine_tune.get_model(test_dataset, log_name, fold)
+    stn_checkpoint = get_checkpoint('stn', log_name, fold)
+    seg_checkpoint = get_checkpoint('seg', log_name, fold)
     model.stn.load_state_dict(stn_checkpoint['model'])
     model.seg.load_state_dict(seg_checkpoint['model'])
   else:
     if model_type == 'seg':
       model = seg.get_model(test_dataset)
     elif model_type == 'fine':
-      model = fine_tune.get_model(test_dataset, log_name)
+      model = fine_tune.get_model(test_dataset, log_name, fold)
       model.output_stn_mask = False
 
-    checkpoint = get_checkpoint(model_type, log_name)
+    checkpoint = get_checkpoint(model_type, log_name, fold)
     model.load_state_dict(checkpoint['model'])
 
   model.to(device)
@@ -180,34 +169,46 @@ def test(model_type, dataset, log_name, dataset_folder, subset, transformed_imag
   }
   df = calculate_metrics(ys, ys_pred, metrics)
 
-  print(df.describe())
-
   return df
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(
-        description='Test a trained model'
-    )
-    parser.add_argument(
-        '--model-type', type=str, choices=['seg', 'stn', 'fine', 'stn-to-seg'], required=True, help='type of model to be tested',
-    )
-    parser.add_argument(
-        '--dataset', type=str, choices=data.dataset_choices, default='lesion', help='which dataset to use'
-    )
-    parser.add_argument(
-        '--subset', type=str, choices=data.lesion_subsets, default='isic', help='which dataset to use'
-    )
-    parser.add_argument(
-        '--dataset-folder', type=str, choices=['train', 'valid', 'test', 'all'], default='test'
-    )
-    parser.add_argument(
-        '--log-name', type=str, required=True, help='name of folder where checkpoints are stored',
-    )
-    parser.add_argument(
-        '--transformed-images', action='store_true', help="use GT STN-transformed images for testing"
-    )
-    parser.add_argument(
-        '--save-predictions', action='store_true', help="save predicted images in the predictions/ folder"
-    )
-    args = parser.parse_args()
-    test(**vars(args))
+  parser = argparse.ArgumentParser()
+  parser.add_argument('--model_type', type=str, required=True, choices=['seg', 'fine'])
+  parser.add_argument('--log_name', type=str, required=True)
+  parser.add_argument('--dataset', type=str, required=True, choices=data.dataset_choices)
+  parser.add_argument('--subset', type=str, required=True, choices=data.lesion_subsets)
+  parser.add_argument('--out_of_sample', action='store_true')
+  parser.add_argument('--save_suffix', type=str, default='')
+  args = parser.parse_args()
+
+  if args.out_of_sample:
+    test_dataset = data.get_valid_dataset(args.dataset, args.subset, subjects='all')
+    df = pd.DataFrame()
+    for fold in range(5):
+      df_ = test(
+        model_type=args.model_type,
+        log_name=args.log_name,
+        fold=fold,
+        test_dataset=test_dataset,
+        save_predictions=False)
+      if fold == 0:
+        df = df_
+      else:
+        df = df + df_
+
+    # Get average across folds
+    df = df / 5
+  else:
+    datasets = data.get_kfolds_datasets(args.dataset, args.subset, 5, args.log_name)
+    df = pd.DataFrame()
+    for fold, (_, test_dataset) in enumerate(datasets):
+      df_ = test(
+        model_type=args.model_type,
+        log_name=args.log_name,
+        fold=fold,
+        test_dataset=test_dataset,
+        save_predictions=False)
+      df = pd.concat([df, df_])
+  
+  print(df.describe())
+  df.to_csv(f'results/{args.model_type}_train={args.log_name}_test={args.subset}_{args.save_suffix}.csv')

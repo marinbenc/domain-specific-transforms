@@ -38,9 +38,9 @@ torch.manual_seed(2022)
 
 device = 'cuda'
 
-def get_model(dataset, log_name):
+def get_model(dataset, log_name, fold):
   stn_model = stn.get_model(dataset)
-  stn_checkpoint_f = p.join('runs', log_name, 'stn', 'stn_best.pth')
+  stn_checkpoint_f = p.join('runs', log_name, 'stn', f'fold_{fold}', 'stn_best.pth')
   if p.exists(stn_checkpoint_f):
     stn_checkpoint = torch.load(stn_checkpoint_f)
     stn_model.load_state_dict(stn_checkpoint['model'])
@@ -49,7 +49,7 @@ def get_model(dataset, log_name):
   
   # add one more channel for the STN output mask
   seg_model = seg.get_model(dataset, num_channels=dataset.in_channels)
-  seg_checkpoint_f = p.join('runs', log_name, 'seg', 'seg_best.pth')
+  seg_checkpoint_f = p.join('runs', log_name, 'seg', f'fold_{fold}', 'seg_best.pth')
   if p.exists(seg_checkpoint_f):
     seg_checkpoint = torch.load(seg_checkpoint_f)
     seg_model.load_state_dict(seg_checkpoint['model'])
@@ -66,16 +66,16 @@ def fine_tune(batch_size, epochs, lr, folds, dataset, subset, log_name):
     def worker_init(worker_id):
         np.random.seed(2022 + worker_id)
 
-    os.makedirs(log_dir/'fine', exist_ok=True)
+    os.makedirs(f'runs/{log_name}/fine', exist_ok=True)
 
-    datasets = data.get_kfolds_datasets(dataset, folds, log_name)
+    datasets = data.get_kfolds_datasets(dataset, subset, folds, log_name)
 
     for fold, (train_dataset, val_dataset) in enumerate(datasets):
       print(f'Fold {fold}')
       train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, worker_init_fn=worker_init)
       val_loader = DataLoader(val_dataset, worker_init_fn=worker_init)
 
-      model = get_model(train_dataset, log_name)
+      model = get_model(train_dataset, log_name, fold)
       model.to(device)
       model.output_theta = True
 
@@ -89,11 +89,17 @@ def fine_tune(batch_size, epochs, lr, folds, dataset, subset, log_name):
           output_loc_img, output_img, ouput_theta = output
           loc_img_loss = loss_fn(output_loc_img, target)
           img_loss = loss_fn(output_img, target)
-          return img_loss + loc_img_loss
+          alpha = 0.5
+          beta = 1 - alpha
+          return alpha * img_loss + beta * loc_img_loss
 
-      writer = SummaryWriter(log_dir=f'{log_dir}/fine/fold_{fold}')
-      for epoch in range(1, epochs + 1):
-        utils.train(model, calculate_loss, optimizer, epoch, train_loader, val_loader, writer=writer, checkpoint_name='fine_best.pth', scheduler=scheduler)
+      os.makedirs(f'runs/{log_name}/fine/fold_{fold}', exist_ok=True)
+
+      writer = SummaryWriter(log_dir=f'runs/{log_name}/fine/fold_{fold}')
+      for epoch in range(epochs):
+        early_stop = utils.train(model, calculate_loss, optimizer, epoch, train_loader, val_loader, writer=writer, checkpoint_name='fine_best.pth', scheduler=scheduler)
+        if early_stop:
+          break
       writer.close()
 
 #TODO: Save arguments json file
