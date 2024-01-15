@@ -40,12 +40,6 @@ device = 'cuda'
 
 def get_model(dataset, log_name, fold):
   stn_model = stn.get_model(dataset)
-  stn_checkpoint_f = p.join('runs', log_name, 'stn', f'fold_{fold}', 'stn_best.pth')
-  if p.exists(stn_checkpoint_f):
-    stn_checkpoint = torch.load(stn_checkpoint_f)
-    stn_model.load_state_dict(stn_checkpoint['model'])
-  else:
-    print('No stn checkpoint found, using random weights')
   
   # add one more channel for the STN output mask
   seg_model = seg.get_model(dataset, num_channels=dataset.in_channels)
@@ -54,6 +48,10 @@ def get_model(dataset, log_name, fold):
     seg_checkpoint = torch.load(seg_checkpoint_f)
     seg_model.load_state_dict(seg_checkpoint['model'])
     stn_model.loc_net.load_state_dict(seg_checkpoint['model'])
+    # freeze stn model loc_net
+    print('Freezing stn model loc_net')
+    for param in stn_model.loc_net.parameters():
+      param.requires_grad = False
   else:
     print('No seg checkpoint found, using random weights')
 
@@ -86,10 +84,10 @@ def fine_tune(batch_size, epochs, lr, folds, dataset, subset, log_name):
       smoothness = losses.IdentityTransformLoss()
 
       def calculate_loss(output, target):
-          output_loc_img, output_img, ouput_theta = output
+          output_loc_img, output_img, output_theta = output
           loc_img_loss = loss_fn(output_loc_img, target)
           img_loss = loss_fn(output_img, target)
-          alpha = 0.5
+          alpha = 1.
           beta = 1 - alpha
           return alpha * img_loss + beta * loc_img_loss
 

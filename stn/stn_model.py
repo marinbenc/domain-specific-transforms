@@ -31,7 +31,11 @@ class STN(nn.Module):
 
       # Regressor for the 3 * 2 affine matrix
       self.loc_head = nn.Sequential(
-        nn.Linear(512 * 4 * 4, 128),
+        nn.Linear(512 * 4 * 4, 256),
+        nn.Dropout(0.5),
+        nn.ReLU(True),
+        nn.Linear(256, 128),
+        nn.Dropout(0.5),
         nn.ReLU(True),
         nn.Linear(128, 3 * 2)
       )
@@ -50,6 +54,10 @@ class STN(nn.Module):
       # self.loc_head[-1].bias.data.zero_()
       # nn.init.dirac_(self.loc_head[-1].weight)
 
+  def stn_transform(x, theta):
+    grid = F.affine_grid(theta, x.size(), align_corners=False)
+    x = F.grid_sample(x, grid)
+    return x
 
   # Spatial transformer network forward function
   def stn(self, x):
@@ -74,6 +82,9 @@ class STN(nn.Module):
       
       theta = theta.view(-1, 2, 3)
 
+      #torch.set_printoptions(precision=3, sci_mode=False)
+      #print(theta[0])
+
       grid = F.affine_grid(theta, x.size(), align_corners=False)
       x = F.grid_sample(x, grid)
 
@@ -84,7 +95,7 @@ class STN(nn.Module):
       return y_mask, y_mask_t, x, theta
 
   def forward(self, x):
-      viz = True
+      viz = False
       if viz:
         plt.imshow(x[0].detach().cpu().numpy().transpose(1, 2, 0) + 0.5)
         plt.show()
