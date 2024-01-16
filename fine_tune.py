@@ -5,6 +5,7 @@ import os
 import shutil
 import os.path as p
 from pathlib import Path
+import cv2 as cv
 
 import torch
 from torch.utils.data import DataLoader
@@ -28,6 +29,7 @@ import seg.train_seg as seg
 import stn.train_stn as stn
 import model as m
 import stn.stn_losses as losses
+from stn.stn_model import STN
 
 from torch.nn import BCELoss
 import kornia as K
@@ -55,7 +57,7 @@ def get_model(dataset, log_name, fold):
   else:
     print('No seg checkpoint found, using random weights')
 
-  seg_model.encoder.set_in_channels(dataset.in_channels + 1)
+  seg_model.encoder.set_in_channels(dataset.in_channels)
 
   model = m.TransformedSegmentation(stn_model, seg_model)
   return model
@@ -83,13 +85,24 @@ def fine_tune(batch_size, epochs, lr, folds, dataset, subset, log_name):
       loss_fn = loss.DiceLoss()
       smoothness = losses.IdentityTransformLoss()
 
+      prior = np.zeros((256, 256))
+      # add circle
+      prior = cv.circle(prior, (96, 96), 100, 1, -1)
+      # plt.imshow(prior)
+      # plt.show()
+
+      prior_batch = torch.from_numpy(prior).unsqueeze(0).unsqueeze(0).to(device)
+
       def calculate_loss(output, target):
           output_loc_img, output_img, output_theta = output
-          loc_img_loss = loss_fn(output_loc_img, target)
+          # loc_img_loss = loss_fn(output_loc_img, target)
           img_loss = loss_fn(output_img, target)
-          alpha = 1.
+          target_t = STN.stn_transform(target.to(device), output_theta)
+          prior_batch_ = prior_batch.repeat(target_t.shape[0], 1, 1, 1).to(device)
+          prior_loss = loss_fn(target_t, prior_batch_)
+          alpha = 0.5
           beta = 1 - alpha
-          return alpha * img_loss + beta * loc_img_loss
+          return alpha * img_loss + beta * prior_loss
 
       os.makedirs(f'runs/{log_name}/fine/fold_{fold}', exist_ok=True)
 

@@ -29,7 +29,7 @@ class TransformedSegmentation(nn.Module):
 
   def forward(self, x):
     # transform image
-    y_loc_net, y_loc_net_t, x_t, theta_out = self.stn(x)
+    _, _, x_t, theta_out = self.stn(x)
     # segment transformed image
 
 
@@ -44,9 +44,9 @@ class TransformedSegmentation(nn.Module):
 
     # two channels, y_loc_net_t is the mask and x_t is the transformed image
     if skip_stn:
-      seg_x = torch.cat([y_loc_net, x], dim=1)
+      seg_x = x
     else:
-      seg_x = torch.cat([y_loc_net_t, x_t], dim=1)
+      seg_x = x_t
     y_t = self.seg(seg_x)
 
     # plt.imshow(y_t[0, 0].detach().cpu().numpy())
@@ -58,7 +58,7 @@ class TransformedSegmentation(nn.Module):
       row = torch.tensor([0, 0, 1], dtype=theta_out.dtype, device=theta_out.device).expand(theta_out.shape[0], 1, 3)
       theta = torch.cat([theta_out, row], dim=1)
       theta_inv = torch.inverse(theta)[:, :2, :]
-      grid = F.affine_grid(theta_inv, y_t.size())
+      grid = F.affine_grid(theta_inv, y_t.size()).to(x.device)
       y = F.grid_sample(y_t, grid)
     else:
       y = y_t
@@ -72,7 +72,7 @@ class TransformedSegmentation(nn.Module):
 
     outputs = [y]
     if self.output_stn_mask:
-      outputs = [y_loc_net] + outputs
+      outputs = [None] + outputs
     if self.output_theta:
       outputs = outputs + [theta_out]
 

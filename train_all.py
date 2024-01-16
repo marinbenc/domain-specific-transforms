@@ -11,18 +11,18 @@ default_params = {
 }
 
 params_seg = [
-  # {
-  #   **default_params,
-  #   'lr': 0.0001,
-  #   'batch_size': 8,
-  #   'subset': 'ph2',
-  # },
-  # {
-  #   **default_params,
-  #   'lr': 0.0001,
-  #   'batch_size': 16,
-  #   'subset': 'dermquest',
-  # },
+  {
+    **default_params,
+    'lr': 0.0001,
+    'batch_size': 8,
+    'subset': 'ph2',
+  },
+  {
+    **default_params,
+    'lr': 0.0001,
+    'batch_size': 16,
+    'subset': 'dermquest',
+  },
   {
     **default_params,
     'lr': 0.0001,
@@ -38,18 +38,18 @@ params_seg = [
 ]
 
 params_fine = [
-  # {
-  #   **default_params,
-  #   'lr': 0.0001,
-  #   'batch_size': 8,
-  #   'subset': 'ph2',
-  # },
-  # {
-  #   **default_params,
-  #   'lr': 0.0001,
-  #   'batch_size': 16,
-  #   'subset': 'dermquest',
-  # },
+  {
+    **default_params,
+    'lr': 0.0001,
+    'batch_size': 8,
+    'subset': 'ph2',
+  },
+  {
+    **default_params,
+    'lr': 0.0001,
+    'batch_size': 16,
+    'subset': 'dermquest',
+  },
   {
     **default_params,
     'lr': 0.0001,
