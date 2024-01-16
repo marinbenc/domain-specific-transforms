@@ -57,7 +57,8 @@ def get_model(dataset, log_name, fold):
   else:
     print('No seg checkpoint found, using random weights')
 
-  seg_model.encoder.set_in_channels(dataset.in_channels)
+  # Add a channel for the initial seg mask
+  seg_model.encoder.set_in_channels(dataset.in_channels + 1)
 
   model = m.TransformedSegmentation(stn_model, seg_model)
   return model
@@ -95,14 +96,13 @@ def fine_tune(batch_size, epochs, lr, folds, dataset, subset, log_name):
 
       def calculate_loss(output, target):
           output_loc_img, output_img, output_theta = output
-          # loc_img_loss = loss_fn(output_loc_img, target)
-          img_loss = loss_fn(output_img, target)
-          target_t = STN.stn_transform(target.to(device), output_theta)
-          prior_batch_ = prior_batch.repeat(target_t.shape[0], 1, 1, 1).to(device)
-          prior_loss = loss_fn(target_t, prior_batch_)
-          alpha = 0.5
-          beta = 1 - alpha
-          return alpha * img_loss + beta * prior_loss
+          target_t = STN.stn_transform(target, output_theta)
+
+          #loc_img_loss = loss_fn(output_loc_img, target)
+          img_loss = F.mse_loss(output_img, target)
+          #alpha = 0.5
+          #beta = 1 - alpha
+          return img_loss
 
       os.makedirs(f'runs/{log_name}/fine/fold_{fold}', exist_ok=True)
 

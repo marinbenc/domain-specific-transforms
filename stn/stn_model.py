@@ -30,7 +30,11 @@ class STN(nn.Module):
       self.loc_net = loc_net
       self.avg_pool = nn.AdaptiveAvgPool2d(output_size=(4, 4))
 
-      self.fc = nn.Linear(512 * 4 * 4, 32)
+      self.conv1 = nn.Conv2d(1, 8, kernel_size=5)
+      self.conv2 = nn.Conv2d(8, 16, kernel_size=5)
+      self.conv3 = nn.Conv2d(16, 32, kernel_size=5)
+
+      self.fc = nn.Linear(32 * 28 * 28, 32)
       self.translation = nn.Linear(32, 2)
       self.rotation = nn.Linear(32, 1)
       self.scaling = nn.Linear(32, 2)
@@ -41,7 +45,7 @@ class STN(nn.Module):
       self.rotation.weight.data.zero_()
       self.rotation.bias.data.copy_(torch.tensor([0], dtype=torch.float))
       self.scaling.weight.data.zero_()
-      self.scaling.bias.data.copy_(torch.tensor([0, 0], dtype=torch.float))
+      self.scaling.bias.data.copy_(torch.tensor([-2, -2], dtype=torch.float))
       self.shearing.weight.data.zero_()
       self.shearing.bias.data.copy_(torch.tensor([0], dtype=torch.float))
 
@@ -126,15 +130,15 @@ class STN(nn.Module):
   # Spatial transformer network forward function
   def stn(self, x):
       x_original = x.detach().clone()
-      features = self.loc_net.encoder(x)
+      
+      # Get initial segmentation mask
+      # (loc_net is a U-Net)
+      y_loc_net = self.loc_net(x)
 
-      # Used during training as a way to achieve deep supervision
-      decoder_output = self.loc_net.decoder(*features)
-      y_mask = self.loc_net.segmentation_head(decoder_output)
-
-      xs = features[-1]
-      xs = self.avg_pool(xs)
-      xs = xs.view(-1, 512 * 4 * 4)
+      xs = F.avg_pool2d(F.relu(self.conv1(y_loc_net)), 2)
+      xs = F.avg_pool2d(F.relu(self.conv2(xs)), 2)
+      xs = F.avg_pool2d(F.relu(self.conv3(xs)), 2)
+      xs = xs.view(xs.size(0), -1)
       xs = F.relu(self.fc(xs))
       theta = self.affine_matrix(xs)
 
@@ -149,16 +153,16 @@ class STN(nn.Module):
       #print(theta[0])
 
       grid = F.affine_grid(theta, x.size(), align_corners=False).to(x.device)
-      x = F.grid_sample(x, grid)
+      x_t = F.grid_sample(x, grid)
 
-      y_mask_t = F.grid_sample(y_mask, grid)
+      y_mask_t = F.grid_sample(y_loc_net, grid)
 
       #utils.show_torch([x_original[0], x[0]])
 
-      return y_mask, y_mask_t, x, theta
+      return y_loc_net, y_mask_t, x_t, theta
 
   def forward(self, x):
-      viz = False
+      viz = True
       if viz:
         plt.imshow(x[0].detach().cpu().numpy().transpose(1, 2, 0) + 0.5)
         plt.show()

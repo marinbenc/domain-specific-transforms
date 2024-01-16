@@ -29,9 +29,9 @@ class TransformedSegmentation(nn.Module):
 
   def forward(self, x):
     # transform image
-    _, _, x_t, theta_out = self.stn(x)
-    # segment transformed image
+    y_inital, y_initial_t, x_t, theta_out = self.stn(x)
 
+    # segment transformed image
 
     # plt.imshow(y_loc_net[0, 0].detach().cpu().numpy())
     # plt.title('y_loc_net')
@@ -46,7 +46,9 @@ class TransformedSegmentation(nn.Module):
     if skip_stn:
       seg_x = x
     else:
-      seg_x = x_t
+      # First channel: x_t
+      # Second channel: y_initial_t
+      seg_x = torch.cat([x_t, y_initial_t], dim=1)
     y_t = self.seg(seg_x)
 
     # plt.imshow(y_t[0, 0].detach().cpu().numpy())
@@ -72,7 +74,7 @@ class TransformedSegmentation(nn.Module):
 
     outputs = [y]
     if self.output_stn_mask:
-      outputs = [None] + outputs
+      outputs = [y_inital] + outputs
     if self.output_theta:
       outputs = outputs + [theta_out]
 
